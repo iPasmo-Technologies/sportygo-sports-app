@@ -3,6 +3,7 @@
 // ─────────────────────────────────────────────────────────────
 
 export type Screen = 'home' | 'sport-select' | 'sport-events' | 'facility-select' | 'schedule' | 'terms' | 'login' | 'forgot-password' | 'checkout' | 'booking-confirmation' | 'bookings' | 'profile' | 'payment-test';
+export type UserRole = 'public' | 'coach' | 'admin';
 export type SportId = 'cricket' | 'indoor-cricket' | 'pickleball' | 'soccer' | 'volleyball' | 'badminton' | 'basketball' | 'kabaddi';
 export type SportImageKey = SportId;
 export type BookingType = 'court' | 'coaching';
@@ -111,6 +112,7 @@ export interface AppState {
   packageOption: string | null;
   isLoggedIn: boolean;
   customerEmail: string;
+  userRole: UserRole;
   authToken: string | null;
   payMethod: PayMethod | null;
   slots: TimeSlot[];
@@ -137,7 +139,8 @@ export type Action =
   | { type: 'SET_DURATION'; payload: number }
   | { type: 'SET_PACKAGE'; payload: string | null }
   | { type: 'SET_PAY_METHOD'; payload: PayMethod | null }
-  | { type: 'SET_LOGGED_IN'; payload: { email: string; token: string } }
+  | { type: 'SET_LOGGED_IN'; payload: { email: string; token: string; role?: UserRole } }
+  | { type: 'SET_USER_ROLE'; payload: UserRole }
   | { type: 'SET_SLOTS_LOADING' }
   | { type: 'SET_SLOTS'; payload: TimeSlot[] }
   | { type: 'SET_SLOTS_ERROR'; payload: string }

@@ -1,253 +1,441 @@
-# Cloudflare Deployment Guide (Final Stack)
+# SportyGo Cloudflare Deployment Guide
 
-This guide is updated for your requested stack:
+This guide is for the repository:
 
-- Frontend deployment: **Cloudflare Pages**
-- Backend deployment: **Cloudflare Containers** (with GitHub integration)
-- Database: **Neon PostgreSQL**
+- GitHub: https://github.com/iPasmo-Technologies/sportygo-sports-app
+- Frontend: React 18 + TypeScript + Vite
+- Backend: Express 4 + TypeScript + Node.js
+- Database: Neon PostgreSQL
+- Payments: Stripe
+- Email: SMTP via Nodemailer
 
-Repository:
-- https://github.com/ipasmo/sg-booking-app
+The recommended production layout is:
 
----
+```text
+Browser
+  |
+  +--> Cloudflare Pages: frontend/dist
+  |
+  +--> Cloudflare Worker + Container: Express API
+                                      |
+                                      +--> Neon PostgreSQL
+                                      +--> Stripe
+                                      +--> SMTP provider
+```
 
-## 1. Final Architecture (Simple and Low Overhead)
+## 1. Recommendation
 
-## Frontend
-- Cloudflare Pages
-- Source: `frontend/`
-- Auto deploy from GitHub on push/merge
+Use **Cloudflare Pages for the frontend** and **Cloudflare Containers behind a Worker for the backend**. Keep Neon as the PostgreSQL provider.
 
-## Backend
-- Cloudflare Containers
-- Source: `backend/` with `Dockerfile.backend`
-- Auto deploy from GitHub
-- Runs existing Express server with minimal code changes
+This gives one Cloudflare account, Cloudflare DNS/custom domains, Git-based deployments, and edge routing while avoiding a database rewrite. Cloudflare does not provide a drop-in managed PostgreSQL database for this application, so Neon remains the database of record.
 
-## Database
-- Neon PostgreSQL
-- Existing backend `pg` code continues to work
+### Important backend compatibility note
 
-## Optional accelerator
-- Hyperdrive can be added later in front of Neon for global connection optimization.
-- Not required for day-1 deployment.
+The existing backend is a normal long-running Express server started by `app.listen()` in `backend/src/index.ts`. It runs inside the repository's Cloudflare Container adapter, but Cloudflare Containers is not a generic Docker hosting dashboard. It requires:
 
----
+1. A Worker entrypoint that routes requests to a Container class.
+2. A Wrangler configuration with the Container and Durable Object bindings.
+3. The `@cloudflare/containers` package in the Worker adapter project.
+4. A container image that listens on the configured port.
 
-## 2. Important Note About PostgreSQL on Cloudflare
+The repository now includes the required adapter under `cloudflare/backend-worker/`. Do not deploy the Dockerfile through a Pages project or assume that a direct Dockerfile upload creates a public API.
 
-Cloudflare does **not** currently provide a native managed PostgreSQL database.
+## 2. GitHub: connect or import?
 
-So your PostgreSQL path is:
-- Neon PostgreSQL (database host), plus
-- Cloudflare compute (Pages + Containers).
+Choose **Connect to Git** for the Cloudflare Pages frontend and **Import a repository** under Workers Builds for the backend Worker.
 
-This matches your target stack and keeps deployment simple.
+For this repository, this is better than Direct Upload or a manual Git import because:
 
----
+- pushes to the production branch can deploy automatically;
+- pull requests can receive frontend preview deployments;
+- the repository remains the single source of truth;
+- Cloudflare can build the frontend and the Worker from the monorepo;
+- rollback is tied to a known commit.
 
-## 3. Deployment Steps (GitHub Integrated, Minimal Steps)
+Use the organization repository, not the old repository name:
 
-## Step A: Prepare repository
+```text
+iPasmo-Technologies/sportygo-sports-app
+```
 
-1. Ensure code is pushed to GitHub:
-   - https://github.com/ipasmo/sg-booking-app
-2. Confirm local build passes:
-   - `frontend`: `npm run build`
-   - `backend`: `npm run build`
+The GitHub account used to authorize Cloudflare must have access to that organization repository. If Cloudflare cannot see the repository, sign into the GitHub organization owner account, verify the repository exists, and approve the Cloudflare GitHub App for the `iPasmo-Technologies` organization/repository.
 
-## Step B: Deploy frontend to Cloudflare Pages
+Cloudflare Pages and Workers Builds are separate connections. Authorizing Pages does not automatically authorize Workers Builds.
 
-1. Cloudflare Dashboard -> Workers & Pages -> Create -> Pages -> Connect to Git.
-2. Select repo: `ipasmo/sg-booking-app`.
-3. Build settings:
-   - Project root: `frontend`
-   - Build command: `npm run build`
-   - Output directory: `dist`
-4. Add env vars in Pages:
-   - `VITE_API_BASE_URL=https://api.yourdomain.com`
-   - `VITE_STRIPE_PUBLISHABLE_KEY=<stripe-publishable-key>`
-5. Deploy.
+## 3. What is required now, and what is optional?
 
-## Step C: Provision Neon PostgreSQL
+### Required
 
-1. Create project in Neon.
-2. Create a production database.
-3. Copy Neon connection string (SSL enabled).
+| Service or setting | Why it is required |
+| --- | --- |
+| Cloudflare Pages | Hosts the compiled Vite frontend globally. |
+| Cloudflare Worker + Container | Runs the existing Express backend without rewriting it for the Workers runtime. |
+| Workers Paid plan | Cloudflare Containers are available on the Workers Paid plan. |
+| Neon PostgreSQL | Stores users, sports, facilities, slots, reservations, bookings, and system configuration. |
+| Stripe account and keys | Required for card payment flows. |
+| SMTP provider | Required for password-reset and booking-confirmation email. |
+| GitHub repository access | Required for Git-based continuous deployment. |
 
-## Step D: Deploy backend to Cloudflare Containers
+### Recommended but not required on day one
 
-1. Cloudflare Dashboard -> Workers & Pages -> Create -> Containers app.
-2. Connect same GitHub repo.
-3. Configure container build using backend Dockerfile:
-   - `Dockerfile.backend`
-4. Add backend environment variables/secrets:
-   - `NODE_ENV=production`
-   - `PORT=3001`
-   - `JWT_SECRET=<strong-random-secret>`
-   - `DATABASE_URL=<Neon Postgres URL>`
-   - `DATABASE_SSL=true`
-   - `FRONTEND_URL=https://<your-pages-domain>`
-   - `STRIPE_SECRET_KEY=<stripe-secret-key>`
-   - `STRIPE_CURRENCY=sgd`
-5. Deploy backend and map custom API domain:
-   - `api.yourdomain.com`
-6. Verify:
-   - `GET /api/health` returns status ok.
+| Service | When to use it |
+| --- | --- |
+| Hyperdrive | Add when the API is deployed in Cloudflare Workers/Containers and database connection latency or connection churn becomes measurable. It supports Neon and can provide connection pooling close to Cloudflare. |
+| Cloudflare custom domains and DNS | Use `app.example.com` and `api.example.com` instead of `pages.dev` and `workers.dev`. |
+| Workers Logs/Observability | Enable for production troubleshooting and request visibility. |
+| Cloudflare Web Analytics | Add lightweight frontend traffic/performance analytics. |
+| Turnstile | Add later if public authentication or booking endpoints attract automated abuse. |
+| WAF/API Shield | Consider when the application has meaningful public traffic or needs stricter API controls. |
 
-## Step E: Initialize production database
+### Not required for this application
 
-Run once against production DB:
+Do not add D1, KV, R2, Durable Objects for application data, Queues, Workflows, Workers AI, Vectorize, or Cloudflare Email Routing merely to deploy this project. The current code already uses Neon, PostgreSQL transactions/locks, Stripe, and SMTP. Adding Cloudflare storage would create a second data model and is not needed.
 
-1. `npm run db:migrate`
-2. `npm run db:seed`
+## 4. Repository deployment map
 
-## Step F: Connect frontend and backend
+| Component | Location | Build/start behavior |
+| --- | --- | --- |
+| Frontend | `frontend/` | `npm run build` produces `frontend/dist` |
+| Backend | `backend/` | Run `npm run build` inside this directory; it produces `backend/dist/` |
+| Backend image | `Dockerfile.backend` | Builds Node 20 Alpine image and runs `node dist/index.js` |
+| Local frontend proxy | `frontend/vite.config.ts` | `/api` proxies to `http://localhost:3001` only in development |
+| Local full stack | `docker-compose.yml` | Frontend on `8080`, backend on `3001` |
+| Database migration | `backend/src/scripts/migrate.ts` | Creates/updates schema |
+| Database seed | `backend/src/scripts/seed.ts` | Seeds packages, sports, events, facilities, and slot configuration |
 
-1. Set/confirm Pages env:
-   - `VITE_API_BASE_URL=https://api.yourdomain.com`
-2. Redeploy frontend.
-3. Smoke test:
-   - Login
-   - Browse sports/facilities
-   - Create booking
-   - View bookings
-   - Profile page
+The production frontend must set `VITE_API_BASE_URL` to the public API URL. The Vite development proxy is not present in the deployed static site.
 
----
+## 5. Before deploying
 
-## 4. CI/CD Flow (Very Easy Maintenance)
+### 5.1 Push and verify the repository
 
-1. Push feature branch.
-2. Create PR.
-3. Preview deploys (Pages preview URL).
-4. Merge to `main`.
-5. Production auto deploy:
-   - Frontend: Pages
-   - Backend: Containers
+From the repository root:
 
-This gives minimal operational overhead after setup.
+```powershell
+git remote -v
+git status
+git push origin main
+```
 
----
+Confirm that the target branch is actually named `main`; otherwise use the real production branch in Cloudflare.
 
-## 5. Pricing (Updated for Your Selected Stack)
+### 5.2 Run the local builds
 
-You requested:
-- Traffic profile: **Small**
-- Runtime choice: **Cloudflare Containers**
-- DB tier: **Neon Free/Launch**
-- Currency: **SGD**
+There is no root `package.json`, so run each build in its own directory:
 
-Assumption for conversion used in this file:
-- 1 USD ~= 1.35 SGD (adjust with your finance rate)
+```powershell
+Set-Location frontend
+npm ci
+npm run build
 
-Reference docs:
-- Workers/Pages pricing: https://developers.cloudflare.com/workers/platform/pricing/
-- Pages limits: https://developers.cloudflare.com/pages/platform/limits/
-- Containers pricing: https://developers.cloudflare.com/containers/
-- Neon pricing: https://neon.tech/pricing
+Set-Location ../backend
+npm ci
+npm run build
+```
 
-## 5.1 Expected monthly cost (small traffic)
+Expected outputs:
 
-## Cloudflare
-1. Pages hosting: **SGD 0** (typically within free limits for small usage)
-2. Workers paid base plan (required for Containers): **~SGD 6.75/month** (USD 5)
-3. Containers usage over included quota:
-   - Small traffic usually low or zero overage if backend usage is light.
-   - Budget placeholder: **SGD 0 to SGD 8/month**
+- `frontend/dist/`
+- `backend/dist/`
 
-## Neon PostgreSQL
-1. Neon Free/Launch plan: **SGD 0** (if usage remains within free tier)
-2. If you outgrow free limits, Neon paid plan starts additionally (plan-dependent).
+### 5.3 Check production security prerequisites
 
-## Total monthly estimate (this stack)
+- Do not commit `.env`, `.env.local`, database URLs, Stripe secret keys, SMTP passwords, JWT secrets, or password-encryption keys.
+- Use different secrets for local, staging, and production.
+- Use Stripe live keys only for the production environment.
+- Use a strong random `JWT_SECRET` and a separate `PASSWORD_AT_REST_KEY`.
+- Set `NODE_ENV=production`; this disables the development reset route.
+- Keep `DEV_RESET_TOKEN` unset or set it to an unusable value in production.
+- Restrict CORS to the final frontend origin.
 
-### Best case (small usage within free/included quotas)
-- **~SGD 6.75/month**
+## 6. Deploy the frontend to Cloudflare Pages
 
-### Practical safe budget (small production usage)
-- **~SGD 10 to SGD 20/month**
+### Dashboard steps
 
-This is usually the realistic range for small apps on this exact stack.
+1. Sign in to the Cloudflare account that will own the deployment.
+2. Open **Workers & Pages**.
+3. Select **Create application**, then **Pages**, then **Connect to Git**.
+4. Authorize GitHub and grant access to the `iPasmo-Technologies/sportygo-sports-app` repository.
+5. Select the repository.
+6. Set the production branch to `main` or the branch used by the project.
+7. Under the advanced build settings, set:
 
----
+```text
+Root directory: frontend
+Build command: npm run build
+Build output directory: dist
+```
 
-## 6. Cost Drivers You Should Watch
+8. Use Node.js 20 for the build if a Node version setting is available. The project Dockerfiles also use Node 20.
+9. Add these Pages environment variables for the **Production** environment:
 
-1. Backend container active runtime (CPU/memory seconds).
-2. API request growth.
-3. Neon storage/compute growth beyond free tier.
-4. Build frequency (if you exceed free Pages build limits).
+```dotenv
+VITE_API_BASE_URL=https://api.example.com
+VITE_AUTH_PAYLOAD_KEY=<same-value-used-by-backend>
+VITE_STRIPE_PUBLISHABLE_KEY=<Stripe-live-publishable-key>
+VITE_MOCK_PAYMENT_ENABLED=false
+VITE_PAYMENT_TEST_PAGE_ENABLED=false
+```
 
-## 6.1 When cost crosses SGD 20/month (what usually caused it)
+`VITE_*` values are compiled into browser JavaScript. `VITE_AUTH_PAYLOAD_KEY` is not a server secret in this design, but it must match the backend value. Never put `DATABASE_URL`, `STRIPE_SECRET_KEY`, `SMTP_PASS`, `JWT_SECRET`, or `PASSWORD_AT_REST_KEY` in Pages.
 
-If your total monthly cost goes above **SGD 20**, it is usually one or more of these:
+10. Select **Save and Deploy**.
+11. Open the generated `*.pages.dev` URL and confirm that the frontend loads.
 
-1. Backend container is staying warm too long due to constant traffic.
-2. API calls are growing beyond small-app levels.
-3. Neon has moved past Free/Launch limits (storage/compute growth).
-4. Unoptimized endpoints are doing heavier DB operations than expected.
+### Custom frontend domain
 
-## 6.2 Practical thresholds to track
+In the Pages project, open **Custom domains**, select **Set up a domain**, and add the chosen app hostname, for example:
 
-Use this as a quick signal table:
+```text
+app.example.com
+```
 
-1. If monthly API traffic approaches **~1M requests**: expect container/runtime charges to rise.
-2. If average request latency climbs with higher DB usage: Neon or query optimization is needed.
-3. If Neon data size and compute are consistently increasing month-over-month: paid Neon tier may be required.
-4. If monthly spend trend crosses **SGD 20 for 2 consecutive months**: start cost optimization immediately.
+Use the resulting final URL as `FRONTEND_URL` in the backend and as the browser origin allowed by CORS.
 
-## 6.3 What to do when crossing SGD 20
+## 7. Deploy the backend with Cloudflare Containers
 
-Do these in order (lowest effort first):
+### Why the adapter is needed
 
-1. Add response caching for read-heavy endpoints.
-2. Add indexes for high-frequency query filters/sorts.
-3. Reduce unnecessary polling from frontend.
-4. Move heavy/non-critical writes to background jobs.
-5. Enable Hyperdrive (if not enabled) to optimize connection behavior and reduce DB pressure.
-6. Review whether any always-on/long-running container behavior can be reduced.
+Cloudflare Containers runs an image through a Worker. The repository includes the Express app, image, and Worker adapter under `cloudflare/backend-worker/`:
 
-## 6.4 Budget guardrail recommendation
+```text
+cloudflare/backend-worker/
+  src/index.ts
+  wrangler.jsonc
+  package.json
+```
 
-Set your alerts this way:
+The adapter contains:
 
-1. Alert at **SGD 12** (early warning).
-2. Alert at **SGD 18** (investigation required).
-3. Hard review at **SGD 20** (optimize or plan tier changes).
+- extend `Container` from `@cloudflare/containers`;
+- set `defaultPort = 3001`;
+- route incoming requests to a named Container instance;
+- pass production environment variables to the container;
+- reference `../../Dockerfile.backend` or a registry image;
+- define the required Durable Object migration and binding.
 
----
+The adapter is intentionally small. The Express routes, Neon queries, Stripe integration, and Nodemailer code remain inside the container, while the Worker selects the named Container instance and forwards requests.
 
-## 7. Production Checklist
+### Create the adapter
 
-1. Use strong `JWT_SECRET`.
-2. Keep `NODE_ENV=production`.
-3. Restrict CORS to app domain.
-4. Keep `/api/dev/reset-seed` non-production only.
-5. Set uptime checks on `/api/health`.
-6. Enable Cloudflare logs/alerts.
-7. Confirm Neon backup/restore settings.
+From the repository root, scaffold using the current Cloudflare template or create the adapter package manually:
 
----
+```powershell
+npm create cloudflare@latest -- --template=cloudflare/templates/containers-template
+```
 
-## 8. Final Recommendation
+Place the generated Worker project in a dedicated directory and adapt its Container class to the SportyGo image. Install the required package in that Worker project:
 
-For your objective (easy setup + low maintenance + GitHub integration):
+```powershell
+npm install @cloudflare/containers
+npm install -D wrangler typescript @cloudflare/workers-types
+```
 
-1. Cloudflare Pages for frontend
-2. Cloudflare Containers for backend
-3. Neon PostgreSQL for database
+The existing backend dependencies do not need to be installed in the Worker adapter. They are installed by `Dockerfile.backend` inside the container.
 
-This is the simplest reliable path for your current codebase with minimal rewrite and predictable cost.
+### Container requirements
 
----
+The image must:
 
-## 9. Quick Start Summary
+- build for `linux/amd64`;
+- listen on port `3001`;
+- start `node dist/index.js`;
+- have outbound internet access for Neon, Stripe, and SMTP;
+- receive all required backend environment variables at runtime;
+- not rely on local filesystem persistence;
+- not assume a fixed localhost hostname.
 
-1. Connect repo to Pages (`frontend`).
-2. Connect repo to Containers (`backend`, `Dockerfile.backend`).
-3. Create Neon DB and set `DATABASE_URL` in backend secrets.
-4. Set `VITE_API_BASE_URL` in Pages.
-5. Deploy both.
-6. Run migrate + seed once.
-7. Go live.
+The current backend uses Neon for persistence, so it does not need a local volume.
+
+### Deploy from the machine first
+
+Docker must be running when Wrangler builds a Dockerfile-based image locally:
+
+```powershell
+docker info
+Set-Location cloudflare/backend-worker
+npx wrangler login
+npx wrangler deploy
+npx wrangler containers list
+```
+
+The first deployment can take several minutes while Cloudflare provisions the Worker and container image. Check the Worker URL and the Containers dashboard after deployment.
+
+### Connect the backend Worker to GitHub
+
+After the adapter works from the machine:
+
+1. Open **Workers & Pages** and select the backend Worker.
+2. Open **Settings** -> **Builds** -> **Connect**.
+3. Select GitHub and the `iPasmo-Technologies/sportygo-sports-app` repository.
+4. Set the Workers Builds root directory to the adapter directory.
+5. Set the production deploy command to:
+
+```text
+npx wrangler deploy
+```
+
+6. Push to the production branch and monitor the build.
+
+For Container Workers, production must use `wrangler deploy`, because it publishes the image and rolls out container instances. A preview `wrangler versions upload` does not update the container image and does not provide a normal full-app preview URL.
+
+## 8. Backend production variables and secrets
+
+Configure these in the backend Container/Worker runtime. Keep sensitive values as Cloudflare secrets, not committed Wrangler variables.
+
+### Public or non-secret configuration
+
+```dotenv
+NODE_ENV=production
+PORT=3001
+FRONTEND_URL=https://app.example.com
+FRONTEND_URLS=https://app.example.com
+DATABASE_SSL=true
+DATABASE_CONNECTION_TIMEOUT_MS=5000
+DATABASE_POOL_MAX=10
+STRIPE_CURRENCY=sgd
+```
+
+### Required secrets
+
+```text
+DATABASE_URL                 Neon production connection string
+JWT_SECRET                   Long random JWT signing secret
+VITE_AUTH_PAYLOAD_KEY        Must equal the Pages value
+PASSWORD_AT_REST_KEY         Separate encryption key for stored passwords
+STRIPE_SECRET_KEY            Stripe live secret key
+SMTP_HOST                    SMTP server hostname
+SMTP_PORT                    465 for implicit TLS or 587 for STARTTLS
+SMTP_USER                    SMTP username
+SMTP_PASS                    SMTP password/API credential
+SMTP_FROM                    Verified sender address
+```
+
+For the current SMTP provider, use the provider’s verified production values. Do not copy credentials from the local `backend/.env` into the repository or documentation. The backend selects implicit TLS automatically when `SMTP_PORT=465`.
+
+Add secrets from the Worker dashboard under **Settings** -> **Variables and Secrets**, or with Wrangler:
+
+```powershell
+npx wrangler secret put DATABASE_URL
+npx wrangler secret put JWT_SECRET
+npx wrangler secret put VITE_AUTH_PAYLOAD_KEY
+npx wrangler secret put PASSWORD_AT_REST_KEY
+npx wrangler secret put STRIPE_SECRET_KEY
+npx wrangler secret put SMTP_HOST
+npx wrangler secret put SMTP_PORT
+npx wrangler secret put SMTP_USER
+npx wrangler secret put SMTP_PASS
+npx wrangler secret put SMTP_FROM
+```
+
+If the Container adapter passes secrets through `envVars`, ensure the Worker configuration does so securely and verify the current Containers secret/environment-variable mechanism before production. Never print secret values in build logs.
+
+## 9. Neon PostgreSQL setup
+
+1. Sign in to Neon and create or select the production project.
+2. Create a production branch/database if your Neon plan uses branches.
+3. Copy the pooled or direct production connection string supplied by Neon.
+4. Keep SSL enabled. The existing backend sets `ssl: { rejectUnauthorized: false }` when `DATABASE_SSL=true`.
+5. Add the connection string as the backend `DATABASE_URL` secret.
+6. Allow the backend to connect and verify `GET /api/health`.
+
+### Initialize the production schema
+
+Run migrations and seeding once against the production database from a trusted machine or CI job. Do not run the destructive reset command in production.
+
+```powershell
+Set-Location backend
+npm ci
+npm run db:migrate
+npm run db:seed
+```
+
+The seed imports the backend JSON data, including the current pickleball prices. Existing database rows are updated by the seed upsert logic, so run `db:seed` after catalog changes. Do not use `npm run db:reset:seed` against production because it deletes application data.
+
+### Optional Hyperdrive
+
+Hyperdrive is optional. It supports Neon and can improve connection setup for Worker-based access, but the current Express process runs inside a full Node container and already uses `pg.Pool`. Start without Hyperdrive; measure first. Add it only after confirming the chosen Container/Worker architecture and testing the `pg` connection path with Hyperdrive’s connection string. Do not add Hyperdrive to the frontend.
+
+## 10. API custom domain and CORS
+
+Assign a custom domain to the backend Worker, for example:
+
+```text
+api.example.com
+```
+
+Then set:
+
+```dotenv
+FRONTEND_URL=https://app.example.com
+FRONTEND_URLS=https://app.example.com
+```
+
+Build the frontend with:
+
+```dotenv
+VITE_API_BASE_URL=https://api.example.com
+```
+
+Deploy the backend before the frontend if the frontend points to a new API hostname. The backend currently permits requests only from the configured origins and exposes the API under `/api`.
+
+## 11. Verification checklist
+
+### Infrastructure
+
+- `https://app.example.com` loads the Vite app.
+- `https://api.example.com/api/health` returns JSON with `status: "ok"`.
+- Cloudflare Container status is healthy.
+- Neon accepts a connection from the backend.
+
+### Application flows
+
+- Register a new account; it receives the default `public` role.
+- Login with email and password.
+- Login with mobile and password, including the duplicate-mobile fallback message.
+- Browse sports, events, and facilities.
+- Confirm pickleball indoor/outdoor prices are S$30/S$25 per hour.
+- Load slot availability and create a booking.
+- Complete a Stripe test/live payment in the intended mode.
+- Receive booking confirmation email.
+- Request and complete password reset email flow.
+- View bookings and profile.
+
+### Security
+
+- A request from an unapproved browser origin is rejected by CORS.
+- `/api/dev/reset-seed` is unavailable in production.
+- Stripe secret, Neon URL, SMTP password, JWT secret, and password-at-rest key are not present in frontend assets or Git history.
+- Pages production variables use live values and test-only UI flags are disabled.
+
+## 12. Pricing and value for this project
+
+Cloudflare’s current Workers Paid plan has a minimum account charge of **USD 5/month** and includes Workers usage allocations. Containers have separate usage dimensions after included allocations. Static Pages asset requests are free and unlimited; Pages Functions, if used, are billed as Workers. Neon and Stripe remain separate provider costs, and SMTP cost depends on the chosen email provider.
+
+Do not promise a fixed monthly total without measuring traffic, container runtime, Neon usage, Stripe volume, and email volume. For a small application, the Cloudflare base plan may be the dominant Cloudflare cost, but the actual bill depends on container memory/CPU runtime and egress. Set billing alerts and review Cloudflare and Neon usage after the first month.
+
+References:
+
+- Cloudflare Pages Git integration: https://developers.cloudflare.com/pages/get-started/git-integration/
+- Cloudflare Workers Builds: https://developers.cloudflare.com/workers/ci-cd/builds/
+- Cloudflare Containers getting started: https://developers.cloudflare.com/containers/get-started/
+- Cloudflare Containers deployment: https://developers.cloudflare.com/containers/deploy/
+- Cloudflare Workers pricing: https://developers.cloudflare.com/workers/platform/pricing/
+- Cloudflare Hyperdrive: https://developers.cloudflare.com/hyperdrive/
+- Cloudflare Pages custom domains: https://developers.cloudflare.com/pages/configuration/custom-domains/
+- Neon Cloudflare guide: https://neon.com/docs/guides/cloudflare-workers
+
+## 13. Recommended rollout order
+
+1. Push the repository to `iPasmo-Technologies/sportygo-sports-app`.
+2. Deploy the frontend to Pages using `frontend/` and verify the static build.
+3. Create and test the Cloudflare backend Worker + Container adapter locally.
+4. Configure backend secrets and the Neon production database.
+5. Run `db:migrate` and `db:seed` once against production.
+6. Deploy the backend Worker and verify `/api/health`.
+7. Add `api.example.com`, update `VITE_API_BASE_URL`, and redeploy Pages.
+8. Add `app.example.com`, update backend CORS, and redeploy the backend.
+9. Run the complete application verification checklist.
+10. Connect both Cloudflare projects to GitHub for automatic production deployments.
+
+This order keeps the database external and stable, makes the frontend independently verifiable, and limits the Cloudflare-specific code to the backend deployment adapter.

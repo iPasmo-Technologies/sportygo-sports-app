@@ -23,6 +23,7 @@ const initialState: AppState = {
   packageOption:    null,
   isLoggedIn:       false,
   customerEmail:    '',
+  userRole:         'public',
   authToken:        null,
   payMethod:        null,
   slots:            [],
@@ -101,7 +102,11 @@ function reducer(state: AppState, action: Action): AppState {
         isLoggedIn:    true,
         customerEmail: action.payload.email,
         authToken:     action.payload.token,
+        userRole:      action.payload.role ?? 'public',
       };
+
+    case 'SET_USER_ROLE':
+      return { ...state, userRole: action.payload };
 
     case 'SET_SLOTS_LOADING':
       return { ...state, slotsLoading: true, slotsError: null };
@@ -142,6 +147,7 @@ function reducer(state: AppState, action: Action): AppState {
         // Preserve login session across bookings
         isLoggedIn:    state.isLoggedIn,
         customerEmail: state.customerEmail,
+        userRole:      state.userRole,
         authToken:     state.authToken,
       };
 

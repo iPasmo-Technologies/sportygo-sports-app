@@ -1,6 +1,6 @@
 import { Router } from 'express';
 import jwt from 'jsonwebtoken';
-import { completePasswordReset, createUserPasswordAccount, findUserByEmail, findUserByEmailOrMobile, savePasswordResetCode, verifyPasswordResetCode } from '../lib/database';
+import { completePasswordReset, countUsersByMobileNumber, createUserPasswordAccount, findUserByEmail, findUserByEmailOrMobile, savePasswordResetCode, verifyPasswordResetCode } from '../lib/database';
 import { decryptClientPasswordPayload, decryptPasswordAtRest, encryptPasswordAtRest } from '../lib/authCrypto';
 import { sendPasswordResetPasscode } from '../lib/email';
 import { authMiddleware, type AuthenticatedRequest } from '../middleware/authMiddleware';
@@ -106,7 +106,7 @@ router.post('/register', async (req, res) => {
     return;
   }
 
-  const token = jwt.sign({ email: normalizedEmail }, JWT_SECRET, { expiresIn: '24h' });
+  const token = jwt.sign({ email: normalizedEmail, role: 'public' }, JWT_SECRET, { expiresIn: '24h' });
   res.status(201).json({ token, email: normalizedEmail });
 });
 
@@ -146,6 +146,15 @@ router.post('/login', async (req, res) => {
     return;
   }
 
+  // Check if login attempt is with a mobile number and if there are duplicates
+  if (MOBILE_RE.test(normalizedLoginId)) {
+    const mobileCount = await countUsersByMobileNumber(normalizedLoginId);
+    if (mobileCount > 1) {
+      res.status(400).json({ error: 'Please login with Email Id' });
+      return;
+    }
+  }
+
   const user = await findUserByEmailOrMobile(normalizedLoginId);
   if (!user || !user.passwordEncrypted) {
     res.status(401).json({ error: 'Invalid email/mobile number or password.' });
@@ -165,7 +174,7 @@ router.post('/login', async (req, res) => {
     return;
   }
 
-  const token = jwt.sign({ email: user.email }, JWT_SECRET, { expiresIn: '24h' });
+  const token = jwt.sign({ email: user.email, role: user.role }, JWT_SECRET, { expiresIn: '24h' });
   res.json({ token, email: user.email });
 });
 
