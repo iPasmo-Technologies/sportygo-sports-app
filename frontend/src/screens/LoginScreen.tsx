@@ -3,6 +3,7 @@ import { ArrowRight, Eye, EyeOff, House, Lock, Mail, Phone, UserRound } from 'lu
 import { useApp } from '@/context/AppContext';
 import { loginUser, registerUser } from '@/lib/api';
 import { clearRememberedAuth, readRememberedAuth, saveRememberedAuth } from '@/lib/rememberedAuth';
+import { extractRoleFromToken } from '@/lib/jwtUtils';
 import { announce } from '@/lib/utils';
 import ErrorBanner from '@/components/ErrorBanner';
 import Spinner from '@/components/Spinner';
@@ -122,7 +123,8 @@ export default function LoginScreen() {
       }
 
       const redirectScreen = state.postLoginRedirect ?? 'sport-select';
-      dispatch({ type: 'SET_LOGGED_IN', payload: { email: res.email, token: res.token } });
+      const userRole = extractRoleFromToken(res.token);
+      dispatch({ type: 'SET_LOGGED_IN', payload: { email: res.email, token: res.token, role: userRole } });
       dispatch({ type: 'SET_POST_LOGIN_REDIRECT', payload: null });
       dispatch({ type: 'SET_SCREEN', payload: redirectScreen });
       announce(`Login successful. Redirecting to ${redirectScreen === 'bookings' ? 'your bookings' : redirectScreen === 'checkout' ? 'checkout' : 'home'}.`);
