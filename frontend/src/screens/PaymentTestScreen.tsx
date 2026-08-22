@@ -1,40 +1,59 @@
-import { useState } from 'react';
-import { CardCvcElement, CardExpiryElement, CardNumberElement, Elements, useElements, useStripe } from '@stripe/react-stripe-js';
-import { Check, ClipboardCopy, FlaskConical, Lock } from 'lucide-react';
+import { useRef, useState } from 'react';
+import {
+  CardCvcElement,
+  CardExpiryElement,
+  CardNumberElement,
+  Elements,
+  useElements,
+  useStripe,
+} from '@stripe/react-stripe-js';
+import {
+  type StripeCardCvcElement,
+  type StripeCardCvcElementChangeEvent,
+  type StripeCardExpiryElement,
+  type StripeCardExpiryElementChangeEvent,
+  type StripeCardNumberElement,
+  type StripeCardNumberElementChangeEvent,
+} from '@stripe/stripe-js';
+import { Check, FlaskConical, Lock } from 'lucide-react';
 import { useApp } from '@/context/AppContext';
 import { createStripeTestPaymentIntent } from '@/lib/api';
 import { makeReceiptId, announce } from '@/lib/utils';
 import { sgd } from '@/lib/pricing';
 import ScreenHeader from '@/components/ScreenHeader';
+import { CardBrandIcons, type SupportedCardBrand } from '@/components/CardBrandIcons';
 import pageBackground from '@/assets/select_sport_bk.png';
 import { stripePromise, stripePublishableKey } from '@/lib/stripe';
 
 const PAYMENT_TEST_PAGE_ENABLED = (import.meta.env.VITE_PAYMENT_TEST_PAGE_ENABLED ?? 'false').trim() === 'true';
-const ELEMENT_OPTIONS = {
+
+const STRIPE_ELEMENT_STYLE = {
   style: {
-    base: { color: '#edf2fa', fontFamily: 'Segoe UI, sans-serif', fontSize: '15px', '::placeholder': { color: '#9ca6b7' } },
+    base: {
+      color: '#edf2fa',
+      fontFamily: 'Segoe UI, sans-serif',
+      fontSize: '15px',
+      fontSmoothing: 'antialiased',
+      '::placeholder': { color: '#9ca6b7' },
+    },
     invalid: { color: '#ff7d87' },
   },
 };
-const STRIPE_TEST_CARDS = [
-  { number: '4242 4242 4242 4242', label: 'Success', color: '#22c55e' },
-  { number: '4000 0000 0000 0002', label: 'Card declined', color: '#ef4444' },
-  { number: '4000 0025 0000 3155', label: '3D Secure required', color: '#f59e0b' },
-];
 
-function CopyButton({ text }: { text: string }) {
-  const [copied, setCopied] = useState(false);
-  return (
-    <button type="button" className="pt-copy-btn" aria-label={`Copy ${text}`} onClick={() => {
-      navigator.clipboard.writeText(text.replace(/\s/g, '')).then(() => {
-        setCopied(true);
-        setTimeout(() => setCopied(false), 1200);
-      }).catch(() => undefined);
-    }}>
-      {copied ? <Check size={13} /> : <ClipboardCopy size={13} />}
-    </button>
-  );
-}
+const CARD_NUMBER_ELEMENT_OPTIONS = { ...STRIPE_ELEMENT_STYLE, placeholder: '1234 1234 1234 1234', showIcon: false };
+const CARD_EXPIRY_ELEMENT_OPTIONS = {
+  ...STRIPE_ELEMENT_STYLE,
+  style: { ...STRIPE_ELEMENT_STYLE.style, base: { ...STRIPE_ELEMENT_STYLE.style.base, fontSize: '14px' } },
+  placeholder: 'mm/yy',
+};
+const CARD_CVC_ELEMENT_OPTIONS = {
+  ...STRIPE_ELEMENT_STYLE,
+  style: { ...STRIPE_ELEMENT_STYLE.style, base: { ...STRIPE_ELEMENT_STYLE.style.base, fontSize: '14px' } },
+  placeholder: 'CVC',
+};
+
+type CardFieldKey = 'number' | 'expiry' | 'cvc';
+type CardFieldState = Record<CardFieldKey, boolean>;
 
 function PaymentTestContent() {
   const { state, dispatch, navigate } = useApp();
@@ -44,6 +63,63 @@ function PaymentTestContent() {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [success, setSuccess] = useState(false);
+  const [activeCardBrand, setActiveCardBrand] = useState<SupportedCardBrand>('unknown');
+  const [focusedCardField, setFocusedCardField] = useState<CardFieldKey | null>(null);
+  const [cardFieldFilled, setCardFieldFilled] = useState<CardFieldState>({ number: false, expiry: false, cvc: false });
+  const cardNumberRef = useRef<StripeCardNumberElement | null>(null);
+  const cardExpiryRef = useRef<StripeCardExpiryElement | null>(null);
+  const cardCvcRef = useRef<StripeCardCvcElement | null>(null);
+
+  function setFieldFocus(field: CardFieldKey, focused: boolean) {
+    setFocusedCardField((current) => {
+      if (focused) return field;
+      return current === field ? null : current;
+    });
+  }
+
+  function setFieldFilled(field: CardFieldKey, filled: boolean) {
+    setCardFieldFilled((current) => (current[field] === filled ? current : { ...current, [field]: filled }));
+  }
+
+  function isFieldActive(field: CardFieldKey): boolean {
+    return focusedCardField === field || cardFieldFilled[field];
+  }
+
+  function focusCardField(field: CardFieldKey) {
+    setFieldFocus(field, true);
+
+    const focusTarget = () => {
+      if (field === 'number') {
+        elements?.getElement(CardNumberElement)?.focus();
+        cardNumberRef.current?.focus();
+        return;
+      }
+      if (field === 'expiry') {
+        elements?.getElement(CardExpiryElement)?.focus();
+        cardExpiryRef.current?.focus();
+        return;
+      }
+      elements?.getElement(CardCvcElement)?.focus();
+      cardCvcRef.current?.focus();
+    };
+
+    focusTarget();
+    setTimeout(focusTarget, 0);
+  }
+
+  function handleCardNumberChange(event: StripeCardNumberElementChangeEvent) {
+    setError(event.error?.message ?? null);
+    setFieldFilled('number', !event.empty);
+    const brand = event.brand === 'visa' || event.brand === 'mastercard' || event.brand === 'amex' || event.brand === 'unionpay'
+      ? event.brand
+      : 'unknown';
+    setActiveCardBrand(brand);
+  }
+
+  function handleCardFieldChange(field: Exclude<CardFieldKey, 'number'>, event: StripeCardExpiryElementChangeEvent | StripeCardCvcElementChangeEvent) {
+    setError(event.error?.message ?? null);
+    setFieldFilled(field, !event.empty);
+  }
 
   function getAmount(): number | null {
     const parsed = Number(amount);
@@ -104,28 +180,80 @@ function PaymentTestContent() {
         <ScreenHeader onBack={() => navigate('profile')} backAriaLabel="Back to profile" />
         <div className="pt-mode-badge"><FlaskConical size={14} /><span>Payment Test Mode</span></div>
         <h1 className="pt-title">Payment Integration Test</h1>
-        <p className="pt-subtitle">Test Stripe with a developer-entered amount. No booking details are required.</p>
+        <p className="pt-subtitle">Enter real card details to test a small Stripe charge. No booking details are required.</p>
 
         <section className="pt-panel">
           <h2>Payment Amount</h2>
           <label className="pt-label" htmlFor="pt-amount">Amount (SGD)</label>
           <input id="pt-amount" className="pt-input pt-amount-input" type="number" min="0.50" step="0.01" value={amount} onChange={(event) => setAmount(event.target.value)} />
-          <p className="pt-hint">Minimum test amount: S$0.50. The entered amount is sent directly to Stripe in test mode.</p>
+          <p className="pt-hint">Minimum test amount: S$0.50. The entered amount is sent directly to Stripe.</p>
           <p className="pt-pricing-row total"><span>Test amount</span><span>{sgd(Number(amount) || 0).replace('SGD', 'S$')}</span></p>
         </section>
 
-        <section className="pt-panel">
+        <section className="checkout-panel-v2 checkout-card-details-panel-v2">
           <h2>Card Details</h2>
-          <div className="pt-card-input"><CardNumberElement options={ELEMENT_OPTIONS} /></div>
-          <div className="pt-card-input-grid"><div className="pt-card-input"><CardExpiryElement options={ELEMENT_OPTIONS} /></div><div className="pt-card-input"><CardCvcElement options={ELEMENT_OPTIONS} /></div></div>
-          {error && <p className="pt-error">{error}</p>}
-          {success && <p className="pt-result success"><Check size={16} /> Payment succeeded. Opening confirmation…</p>}
-        </section>
+          <div className="checkout-stripe-card-wrap">
+            <div
+              className={`checkout-card-input-shell checkout-card-input-shell--number${focusedCardField === 'number' ? ' is-focused' : ''}${isFieldActive('number') ? ' is-active' : ''}`}
+              aria-label="Card number"
+              onClick={() => focusCardField('number')}
+            >
+              <div className="checkout-card-input-copy">
+                <span className="checkout-card-input-label">Card number</span>
+                <div className="checkout-card-input-element">
+                  <CardNumberElement
+                    options={CARD_NUMBER_ELEMENT_OPTIONS}
+                    onChange={handleCardNumberChange}
+                    onReady={(element) => { cardNumberRef.current = element; }}
+                    onFocus={() => setFieldFocus('number', true)}
+                    onBlur={() => setFieldFocus('number', false)}
+                  />
+                </div>
+              </div>
+              <CardBrandIcons activeBrand={activeCardBrand} />
+            </div>
 
-        <section className="pt-panel">
-          <h2>Stripe Test Cards</h2>
-          <p className="pt-hint">Use any future expiry date and any three-digit CVC.</p>
-          <div className="pt-card-list">{STRIPE_TEST_CARDS.map((card) => <div className="pt-card-row" key={card.number}><span className="pt-card-dot" style={{ background: card.color }} /><code className="pt-card-num">{card.number}</code><CopyButton text={card.number} /><span className="pt-card-label">{card.label}</span></div>)}</div>
+            <div className="checkout-card-input-grid">
+              <div
+                className={`checkout-card-input-shell checkout-card-input-shell--half${focusedCardField === 'expiry' ? ' is-focused' : ''}${isFieldActive('expiry') ? ' is-active' : ''}`}
+                aria-label="Card expiration"
+                onClick={() => focusCardField('expiry')}
+              >
+                <span className="checkout-card-input-label">Expiration</span>
+                <div className="checkout-card-input-element">
+                  <CardExpiryElement
+                    options={CARD_EXPIRY_ELEMENT_OPTIONS}
+                    onChange={(event) => handleCardFieldChange('expiry', event)}
+                    onReady={(element) => { cardExpiryRef.current = element; }}
+                    onFocus={() => setFieldFocus('expiry', true)}
+                    onBlur={() => setFieldFocus('expiry', false)}
+                  />
+                </div>
+              </div>
+
+              <div
+                className={`checkout-card-input-shell checkout-card-input-shell--half${focusedCardField === 'cvc' ? ' is-focused' : ''}${isFieldActive('cvc') ? ' is-active' : ''}`}
+                aria-label="Card security code"
+                onClick={() => focusCardField('cvc')}
+              >
+                <span className="checkout-card-input-label">CVC</span>
+                <div className="checkout-card-input-element">
+                  <CardCvcElement
+                    options={CARD_CVC_ELEMENT_OPTIONS}
+                    onChange={(event) => handleCardFieldChange('cvc', event)}
+                    onReady={(element) => { cardCvcRef.current = element; }}
+                    onFocus={() => setFieldFocus('cvc', true)}
+                    onBlur={() => setFieldFocus('cvc', false)}
+                  />
+                </div>
+              </div>
+            </div>
+            {!stripePublishableKey && (
+              <p className="checkout-stripe-card-hint error">Stripe is not configured for this frontend environment.</p>
+            )}
+            {error && <p className="checkout-stripe-card-hint error">{error}</p>}
+          </div>
+          {success && <p className="pt-result success"><Check size={16} /> Payment succeeded. Opening confirmation…</p>}
         </section>
 
         <button type="button" className="pt-real-btn" disabled={busy || !stripePublishableKey} onClick={handleStripePayment}><Lock size={17} /><span>{busy ? 'Processing…' : `Pay ${amount || '0.00'} with Stripe`}</span></button>
