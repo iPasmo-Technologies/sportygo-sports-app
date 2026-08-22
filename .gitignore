@@ -10,3 +10,7 @@ Project_Costing_Estimate.csv
 backend/.env
 
 frontend/.env.local
+
+# Wrangler local cache (Cloudflare account info, auto-regenerated)
+.wrangler/
+**/.wrangler/

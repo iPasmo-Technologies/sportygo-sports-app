@@ -16,40 +16,42 @@ import { isDatabaseConfigured } from './lib/database';
 const app  = express();
 const PORT = parseInt(process.env.PORT ?? '3001', 10);
 
+// Fallback allow-list used only when FRONTEND_URL/FRONTEND_URLS are not set,
+// so a missing env var never silently opens CORS to every origin.
+const DEFAULT_ALLOWED_ORIGINS = ['https://app.sportygo.com.sg'];
+
 function parseAllowedOrigins(): string[] {
   const single = process.env.FRONTEND_URL ?? '';
   const multi = process.env.FRONTEND_URLS ?? '';
   const combined = [single, multi].filter(Boolean).join(',');
 
-  return combined
+  const configured = combined
     .split(',')
     .map((origin) => origin.trim())
     .filter(Boolean);
+
+  return configured.length > 0 ? configured : DEFAULT_ALLOWED_ORIGINS;
 }
 
 const allowedOrigins = parseAllowedOrigins();
 
 // ── Security middleware ───────────────────────────────────────
 app.use(helmet());
+
+// Explicit origin gate before the `cors` package runs, so a rejected origin
+// gets a clean 403 JSON response instead of relying on Express error-handler fallthrough.
+app.use((req, res, next) => {
+  const origin = req.headers.origin;
+  if (!origin || allowedOrigins.includes(origin)) {
+    next();
+    return;
+  }
+  res.status(403).json({ error: 'CORS blocked for this origin.' });
+});
+
 app.use(cors({
   origin: (origin, callback) => {
-    // Allow non-browser requests and same-origin server-to-server checks.
-    if (!origin) {
-      callback(null, true);
-      return;
-    }
-
-    if (allowedOrigins.length === 0) {
-      callback(null, true);
-      return;
-    }
-
-    if (allowedOrigins.includes(origin)) {
-      callback(null, true);
-      return;
-    }
-
-    callback(new Error(`CORS blocked for origin: ${origin}`));
+    callback(null, !origin || allowedOrigins.includes(origin));
   },
   methods: ['GET', 'POST'],
   allowedHeaders: ['Content-Type', 'Authorization'],
