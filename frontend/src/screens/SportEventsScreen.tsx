@@ -14,6 +14,10 @@ import cricketBanner from '@/assets/cricket_banner.png';
 import cricketCard from '@/assets/card_cricket.png';
 import indoorCricketCard from '@/assets/card_indoor_cricket.png';
 import pickleballCard from '@/assets/card_pickle_ball.png';
+import futsalCard from '@/assets/card_futsal.png';
+import sepakTakrawCard from '@/assets/card_sepak_takraw.png';
+import tennisCard from '@/assets/card_tennis.png';
+import tableTennisCard from '@/assets/card_table_tennis.png';
 import soccerCard from '@/assets/card_soccer.png';
 import volleyballCard from '@/assets/card_volley_ball.png';
 import badmintonCard from '@/assets/card_badminton.png';
@@ -36,6 +40,10 @@ const SPORT_BANNERS: SportBannerMap = {
   cricket: cricketBanner,
   'indoor-cricket': indoorCricketCard,
   pickleball: pickleballCard,
+  futsal: futsalCard,
+  'sepak-takraw': sepakTakrawCard,
+  tennis: tennisCard,
+  'table-tennis': tableTennisCard,
   soccer: soccerCard,
   volleyball: volleyballCard,
   badminton: badmintonCard,
@@ -47,6 +55,10 @@ const SPORT_CARDS: SportCardMap = {
   cricket: cricketCard,
   'indoor-cricket': indoorCricketCard,
   pickleball: pickleballCard,
+  futsal: futsalCard,
+  'sepak-takraw': sepakTakrawCard,
+  tennis: tennisCard,
+  'table-tennis': tableTennisCard,
   soccer: soccerCard,
   volleyball: volleyballCard,
   badminton: badmintonCard,

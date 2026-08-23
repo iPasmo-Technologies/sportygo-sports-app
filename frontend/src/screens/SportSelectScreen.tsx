@@ -1,5 +1,4 @@
 import { useEffect, useState } from 'react';
-import { ChevronRight, ShieldCheck } from 'lucide-react';
 import { useApp, useSelectBookingType } from '@/context/AppContext';
 import { announce } from '@/lib/utils';
 import ScreenHeader from '@/components/ScreenHeader';
@@ -7,6 +6,10 @@ import selectSportBackground from '@/assets/select_sport_bk.png';
 import cricketCard from '@/assets/card_cricket.png';
 import indoorCricketCard from '@/assets/card_indoor_cricket.png';
 import pickleballCard from '@/assets/card_pickle_ball.png';
+import futsalCard from '@/assets/card_futsal.png';
+import sepakTakrawCard from '@/assets/card_sepak_takraw.png';
+import tennisCard from '@/assets/card_tennis.png';
+import tableTennisCard from '@/assets/card_table_tennis.png';
 import soccerCard from '@/assets/card_soccer.png';
 import volleyballCard from '@/assets/card_volley_ball.png';
 import badmintonCard from '@/assets/card_badminton.png';
@@ -27,6 +30,10 @@ const SPORT_IMAGES: Record<SportOption['imageKey'], string> = {
   cricket: cricketCard,
   'indoor-cricket': indoorCricketCard,
   pickleball: pickleballCard,
+  futsal: futsalCard,
+  'sepak-takraw': sepakTakrawCard,
+  tennis: tennisCard,
+  'table-tennis': tableTennisCard,
   soccer: soccerCard,
   volleyball: volleyballCard,
   badminton: badmintonCard,
@@ -120,17 +127,6 @@ export default function SportSelectScreen() {
             </button>
           ))}
         </div>
-
-        <button type="button" className="sport-info-banner" aria-label="Explore and switch sports anytime">
-          <span className="sport-info-icon" aria-hidden="true">
-            <ShieldCheck size={20} strokeWidth={2.1} />
-          </span>
-          <span className="sport-info-text">
-            <strong>Not sure which one to choose?</strong>
-            <small>You can explore and switch sports anytime.</small>
-          </span>
-          <ChevronRight size={18} strokeWidth={2.4} className="sport-info-arrow" aria-hidden="true" />
-        </button>
 
       </div>
     </div>

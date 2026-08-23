@@ -44,8 +44,8 @@ type BookingCard = {
   id: string;
   bookingType: BookingHistoryItem['bookingType'];
   title: string;
-  location: string;
-  mapLocationUrl: string;
+  location: string | null;
+  mapLocationUrl: string | null;
   dateText: string;
   timeText: string;
   durationMins: number;
@@ -54,7 +54,7 @@ type BookingCard = {
   statusType: 'upcoming' | 'completed';
   payMethod: BookingHistoryItem['payMethod'];
   paymentMethod: BookingHistoryItem['paymentMethod'];
-  image: string;
+  image: string | null;
 };
 
 function currentSingaporeDateTimeKey(): string {
@@ -95,21 +95,17 @@ function formatDateForCard(date: string): string {
 }
 
 function mapHistoryToCard(item: BookingHistoryItem): BookingCard {
-  const isCoaching = item.bookingType === 'coaching';
   const isPast = bookingDateTimeKey(item) < currentSingaporeDateTimeKey();
   const start = item.slotTime.slice(0, 5);
   const end = addMinutes(start, item.durationMins);
   const statusLabel = item.status === 'cash_pending' ? 'Pending Cash' : isPast ? 'Completed' : 'Upcoming';
-  const fallbackTitle = isCoaching ? 'Coaching Session' : 'Cricket Net 2';
-  const fallbackLocation = 'Kallang, Singapore';
-  const location = item.facilityAddress ?? fallbackLocation;
 
   return {
     id: item.receiptId,
     bookingType: item.bookingType,
-    title: item.facilityTitle ?? fallbackTitle,
-    location,
-    mapLocationUrl: `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(location)}`,
+    title: item.facilityTitle ?? 'Facility details unavailable',
+    location: item.facilityAddress,
+    mapLocationUrl: item.facilityMapLocationUrl,
     dateText: formatDateForCard(item.slotDate),
     timeText: `${to12Hour(start)} - ${to12Hour(end)} (${item.durationMins} min)`,
     durationMins: item.durationMins,
@@ -118,7 +114,7 @@ function mapHistoryToCard(item: BookingHistoryItem): BookingCard {
     statusType: isPast ? 'completed' : 'upcoming',
     payMethod: item.payMethod,
     paymentMethod: item.paymentMethod,
-    image: item.facilityImageKey ? FACILITY_IMAGES[item.facilityImageKey] : isCoaching ? cricketGear : indoorCricketCard,
+    image: item.facilityImageKey ? FACILITY_IMAGES[item.facilityImageKey] : null,
   };
 }
 
@@ -140,7 +136,9 @@ function BookingCardView({
     <article className="bookings-card-v2">
       <div className="bookings-card-main-v2">
         <div className="bookings-card-top-v2">
-          <img src={booking.image} alt={booking.title} className="bookings-card-image-v2" />
+          {booking.image && (
+            <img src={booking.image} alt={booking.title} className="bookings-card-image-v2" />
+          )}
           <span className={`bookings-status-v2 ${booking.statusType}`}>{booking.statusLabel}</span>
           <div className="bookings-card-price-v2">
             <strong>{booking.amount}</strong>
@@ -151,16 +149,20 @@ function BookingCardView({
         <div className="bookings-card-info-v2">
           <h3>{booking.title}</h3>
           <p className="bookings-location-v2">
-            <a
-              className="bookings-location-link-v2"
-              href={booking.mapLocationUrl}
-              target="_blank"
-              rel="noreferrer"
-              aria-label={`Open map for ${booking.title}`}
-            >
-              <MapPin size={14} strokeWidth={2.1} />
-            </a>
-            {booking.location}
+            {booking.mapLocationUrl ? (
+              <a
+                className="bookings-location-link-v2"
+                href={booking.mapLocationUrl}
+                target="_blank"
+                rel="noreferrer"
+                aria-label={`Open map for ${booking.title}`}
+              >
+                <MapPin size={14} strokeWidth={2.1} />
+              </a>
+            ) : (
+              <MapPin size={14} strokeWidth={2.1} aria-hidden="true" />
+            )}
+            {booking.location ?? 'Location unavailable'}
           </p>
           <p><CalendarDays size={14} strokeWidth={2.1} />{booking.dateText}</p>
           <p><Clock3 size={14} strokeWidth={2.1} />{booking.timeText}</p>
@@ -246,20 +248,24 @@ function BookingDetailsDialog({ booking, onClose }: { booking: BookingCard; onCl
         </header>
 
         <div className="booking-details-venue">
-          <img src={booking.image} alt={booking.title} />
+          {booking.image && <img src={booking.image} alt={booking.title} />}
           <div>
             <h3>{booking.title}</h3>
             <p>
-              <a
-                className="bookings-location-link-v2"
-                href={booking.mapLocationUrl}
-                target="_blank"
-                rel="noreferrer"
-                aria-label={`Open map for ${booking.title}`}
-              >
-                <MapPin size={15} strokeWidth={2.2} />
-              </a>
-              {booking.location}
+              {booking.mapLocationUrl ? (
+                <a
+                  className="bookings-location-link-v2"
+                  href={booking.mapLocationUrl}
+                  target="_blank"
+                  rel="noreferrer"
+                  aria-label={`Open map for ${booking.title}`}
+                >
+                  <MapPin size={15} strokeWidth={2.2} />
+                </a>
+              ) : (
+                <MapPin size={15} strokeWidth={2.2} aria-hidden="true" />
+              )}
+              {booking.location ?? 'Location unavailable'}
             </p>
             <span className={`bookings-status-v2 ${booking.statusType}`}>{booking.statusLabel}</span>
           </div>

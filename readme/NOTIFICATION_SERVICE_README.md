@@ -2,8 +2,10 @@
 
 ## Purpose
 
-SportyGo can notify customers after a booking is completed. A notification can include:
+SportyGo can notify customers when they create an account, request a password reset, or complete a booking. Notifications can include:
 
+- A branded account welcome message with SportyGo benefits and community links
+- A password-reset passcode
 - Payment status
 - Booking confirmation number
 - Facility name and address
@@ -25,7 +27,7 @@ Render can store the service settings securely as environment variables. The act
 
 Email is the simplest and lowest-cost option for SportyGo. The current backend already supports email sending through SMTP.
 
-The customer can receive a booking confirmation email containing the same type of information shown in the My Bookings card.
+Customers can receive a welcome email after successful registration, a password-reset passcode, and a booking confirmation containing the same type of information shown in the My Bookings card.
 
 ### Email providers
 
@@ -62,7 +64,7 @@ The client should have:
 - DMARC configuration recommended
 - SMTP username and password or SMTP API credentials
 
-Without SMTP settings, the booking can still be saved, but the email cannot be delivered.
+Without SMTP settings, account creation and booking remain successful, but welcome and booking emails cannot be delivered. Password-reset requests require working SMTP delivery so the customer can receive the passcode.
 
 ## Option 2: WhatsApp
 

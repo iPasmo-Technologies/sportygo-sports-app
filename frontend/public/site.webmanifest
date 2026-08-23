@@ -1,0 +1,28 @@
+{
+  "name": "SportyGo Booking App",
+  "short_name": "SportyGo",
+  "description": "Discover sports facilities and manage bookings with SportyGo.",
+  "id": "/",
+  "start_url": "/",
+  "scope": "/",
+  "lang": "en-SG",
+  "categories": ["sports", "fitness", "lifestyle"],
+  "icons": [
+    {
+      "src": "/favicon-192x192.png?v=2",
+      "sizes": "192x192",
+      "type": "image/png",
+      "purpose": "any"
+    },
+    {
+      "src": "/favicon-512x512.png?v=2",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "any"
+    }
+  ],
+  "theme_color": "#051328",
+  "background_color": "#051328",
+  "display": "standalone",
+  "orientation": "portrait-primary"
+}

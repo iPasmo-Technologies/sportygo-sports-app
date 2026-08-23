@@ -4,7 +4,7 @@
 
 export type Screen = 'home' | 'sport-select' | 'sport-events' | 'facility-select' | 'schedule' | 'terms' | 'login' | 'forgot-password' | 'checkout' | 'booking-confirmation' | 'bookings' | 'profile' | 'payment-test';
 export type UserRole = 'public' | 'coach' | 'admin';
-export type SportId = 'cricket' | 'indoor-cricket' | 'pickleball' | 'soccer' | 'volleyball' | 'badminton' | 'basketball' | 'kabaddi';
+export type SportId = 'cricket' | 'indoor-cricket' | 'pickleball' | 'futsal' | 'sepak-takraw' | 'tennis' | 'table-tennis' | 'soccer' | 'volleyball' | 'badminton' | 'basketball' | 'kabaddi';
 export type SportImageKey = SportId;
 export type BookingType = 'court' | 'coaching';
 export type PayMethod = 'STRIPE' | 'GPAY' | 'PAYNOW' | 'GRABPAY';
@@ -251,6 +251,7 @@ export interface BookingHistoryItem {
   paymentMethod: 'ONLINE' | 'CASH';
   facilityTitle: string | null;
   facilityAddress: string | null;
+  facilityMapLocationUrl: string | null;
   facilityImageKey: SportFacilityImageKey | null;
   facilityTag: string | null;
 }

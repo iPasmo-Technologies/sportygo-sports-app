@@ -129,7 +129,8 @@ export default function SportFacilityScreen() {
               key={card.id}
               className={`facility-select-card${!card.enabled ? ' is-disabled' : ''}`}
               role="listitem"
-              aria-label={card.title}
+              aria-label={`${card.title}, ${card.address}`}
+              title={card.address}
               aria-disabled={!card.enabled}
               disabled={!card.enabled}
               onClick={() => handleFacilitySelect(card)}
@@ -143,6 +144,10 @@ export default function SportFacilityScreen() {
 
               <div className="facility-select-card-body">
                 <div className="facility-select-card-title">{card.title}</div>
+                <div className="facility-select-card-address">
+                  <MapPin size={13} strokeWidth={2.2} aria-hidden="true" />
+                  <span>{card.address}</span>
+                </div>
                 <div className="facility-select-card-price">
                   {card.price}
                   <small>/ hour base rate</small>
@@ -158,16 +163,6 @@ export default function SportFacilityScreen() {
               </div>
             </button>
           ))}
-        </div>
-
-        <div className="facility-select-note">
-          <span className="facility-select-note-icon" aria-hidden="true">
-            <ShieldCheck size={26} strokeWidth={2.1} />
-          </span>
-          <span className="facility-select-note-text">
-            <strong>All facilities are hourly bookings.</strong>
-            <small>Select a facility to check slot availability for booking.</small>
-          </span>
         </div>
 
       </div>

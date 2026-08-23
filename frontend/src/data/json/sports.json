@@ -2,9 +2,13 @@
   { "id": "cricket", "label": "Cricket", "imageKey": "cricket", "bannerKey": "cricket", "enabled": true, "sortOrder": 1 },
   { "id": "indoor-cricket", "label": "Indoor Cricket", "imageKey": "indoor-cricket", "bannerKey": "indoor-cricket", "enabled": true, "sortOrder": 2 },
   { "id": "pickleball", "label": "Pickleball", "imageKey": "pickleball", "bannerKey": "pickleball", "enabled": true, "sortOrder": 3 },
-  { "id": "soccer", "label": "Soccer", "imageKey": "soccer", "bannerKey": "soccer", "enabled": false, "sortOrder": 4 },
-  { "id": "volleyball", "label": "Volleyball", "imageKey": "volleyball", "bannerKey": "volleyball", "enabled": false, "sortOrder": 5 },
-  { "id": "badminton", "label": "Badminton", "imageKey": "badminton", "bannerKey": "badminton", "enabled": false, "sortOrder": 6 },
-  { "id": "basketball", "label": "Basketball", "imageKey": "basketball", "bannerKey": "basketball", "enabled": false, "sortOrder": 7 },
-  { "id": "kabaddi", "label": "Kabaddi", "imageKey": "kabaddi", "bannerKey": "kabaddi", "enabled": false, "sortOrder": 8 }
+  { "id": "futsal", "label": "Futsal", "imageKey": "futsal", "bannerKey": "futsal", "enabled": false, "sortOrder": 4 },
+  { "id": "sepak-takraw", "label": "Sepak Takraw", "imageKey": "sepak-takraw", "bannerKey": "sepak-takraw", "enabled": false, "sortOrder": 5 },
+  { "id": "tennis", "label": "Tennis", "imageKey": "tennis", "bannerKey": "tennis", "enabled": false, "sortOrder": 6 },
+  { "id": "table-tennis", "label": "Table Tennis", "imageKey": "table-tennis", "bannerKey": "table-tennis", "enabled": false, "sortOrder": 7 },
+  { "id": "soccer", "label": "Soccer", "imageKey": "soccer", "bannerKey": "soccer", "enabled": false, "sortOrder": 8 },
+  { "id": "volleyball", "label": "Volleyball", "imageKey": "volleyball", "bannerKey": "volleyball", "enabled": false, "sortOrder": 9 },
+  { "id": "badminton", "label": "Badminton", "imageKey": "badminton", "bannerKey": "badminton", "enabled": false, "sortOrder": 10 },
+  { "id": "basketball", "label": "Basketball", "imageKey": "basketball", "bannerKey": "basketball", "enabled": false, "sortOrder": 11 },
+  { "id": "kabaddi", "label": "Kabaddi", "imageKey": "kabaddi", "bannerKey": "kabaddi", "enabled": false, "sortOrder": 12 }
 ]
