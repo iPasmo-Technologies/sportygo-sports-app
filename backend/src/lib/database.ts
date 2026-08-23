@@ -14,10 +14,10 @@ export type PackageRow = {
 };
 
 export type SportRow = {
-  id: 'cricket' | 'indoor-cricket' | 'pickleball' | 'soccer' | 'volleyball' | 'badminton' | 'basketball' | 'kabaddi';
+  id: 'cricket' | 'indoor-cricket' | 'pickleball' | 'futsal' | 'sepak-takraw' | 'tennis' | 'table-tennis' | 'soccer' | 'volleyball' | 'badminton' | 'basketball' | 'kabaddi';
   label: string;
-  imageKey: 'cricket' | 'indoor-cricket' | 'pickleball' | 'soccer' | 'volleyball' | 'badminton' | 'basketball' | 'kabaddi';
-  bannerKey: 'cricket' | 'indoor-cricket' | 'pickleball' | 'soccer' | 'volleyball' | 'badminton' | 'basketball' | 'kabaddi';
+  imageKey: SportRow['id'];
+  bannerKey: SportRow['id'];
   enabled: boolean;
   sortOrder: number;
 };
@@ -590,10 +590,10 @@ async function ensureSchema(client: PoolClient): Promise<void> {
 
   await client.query(`
     CREATE TABLE IF NOT EXISTS sports (
-      id TEXT PRIMARY KEY CHECK (id IN ('cricket', 'indoor-cricket', 'pickleball', 'soccer', 'volleyball', 'badminton', 'basketball', 'kabaddi')),
+      id TEXT PRIMARY KEY CHECK (id IN ('cricket', 'indoor-cricket', 'pickleball', 'futsal', 'sepak-takraw', 'tennis', 'table-tennis', 'soccer', 'volleyball', 'badminton', 'basketball', 'kabaddi')),
       label TEXT NOT NULL,
-      image_key TEXT NOT NULL CHECK (image_key IN ('cricket', 'indoor-cricket', 'pickleball', 'soccer', 'volleyball', 'badminton', 'basketball', 'kabaddi')),
-      banner_key TEXT NOT NULL CHECK (banner_key IN ('cricket', 'indoor-cricket', 'pickleball', 'soccer', 'volleyball', 'badminton', 'basketball', 'kabaddi')),
+      image_key TEXT NOT NULL CHECK (image_key IN ('cricket', 'indoor-cricket', 'pickleball', 'futsal', 'sepak-takraw', 'tennis', 'table-tennis', 'soccer', 'volleyball', 'badminton', 'basketball', 'kabaddi')),
+      banner_key TEXT NOT NULL CHECK (banner_key IN ('cricket', 'indoor-cricket', 'pickleball', 'futsal', 'sepak-takraw', 'tennis', 'table-tennis', 'soccer', 'volleyball', 'badminton', 'basketball', 'kabaddi')),
       enabled BOOLEAN NOT NULL DEFAULT TRUE,
       sort_order INTEGER NOT NULL DEFAULT 0,
       created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
@@ -637,6 +637,25 @@ async function ensureSchema(client: PoolClient): Promise<void> {
   await client.query(`
     ALTER TABLE sports
     ALTER COLUMN enabled SET NOT NULL
+  `);
+
+  await client.query('ALTER TABLE sports DROP CONSTRAINT IF EXISTS sports_id_check');
+  await client.query('ALTER TABLE sports DROP CONSTRAINT IF EXISTS sports_image_key_check');
+  await client.query('ALTER TABLE sports DROP CONSTRAINT IF EXISTS sports_banner_key_check');
+  await client.query(`
+    ALTER TABLE sports
+    ADD CONSTRAINT sports_id_check
+    CHECK (id IN ('cricket', 'indoor-cricket', 'pickleball', 'futsal', 'sepak-takraw', 'tennis', 'table-tennis', 'soccer', 'volleyball', 'badminton', 'basketball', 'kabaddi'))
+  `);
+  await client.query(`
+    ALTER TABLE sports
+    ADD CONSTRAINT sports_image_key_check
+    CHECK (image_key IN ('cricket', 'indoor-cricket', 'pickleball', 'futsal', 'sepak-takraw', 'tennis', 'table-tennis', 'soccer', 'volleyball', 'badminton', 'basketball', 'kabaddi'))
+  `);
+  await client.query(`
+    ALTER TABLE sports
+    ADD CONSTRAINT sports_banner_key_check
+    CHECK (banner_key IN ('cricket', 'indoor-cricket', 'pickleball', 'futsal', 'sepak-takraw', 'tennis', 'table-tennis', 'soccer', 'volleyball', 'badminton', 'basketball', 'kabaddi'))
   `);
 
   await client.query(`
