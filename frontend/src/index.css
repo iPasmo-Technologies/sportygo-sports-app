@@ -1490,7 +1490,7 @@ input { font-family: inherit; }
   padding-bottom: 0;
   position: relative;
   min-height: 248px;
-  transition: border-color var(--transition), transform var(--transition);
+  transition: border-color var(--transition), transform var(--transition), box-shadow var(--transition), background-color var(--transition);
 }
 .facility-select-card-media {
   position: relative;
@@ -1529,6 +1529,34 @@ input { font-family: inherit; }
   line-height: 1.16;
   font-weight: 700;
   min-height: 2.4em;
+}
+.facility-select-card-address {
+  color: #9faac0;
+  font-size: 0.68rem;
+  line-height: 1.35;
+  display: flex;
+  align-items: flex-start;
+  gap: 5px;
+  min-height: 2.7em;
+  transition: color var(--transition);
+}
+.facility-select-card-address svg {
+  color: #d6a157;
+  flex: 0 0 auto;
+  margin-top: 1px;
+}
+.facility-select-card:not(.is-disabled):hover,
+.facility-select-card:not(.is-disabled):focus-visible {
+  box-shadow: 0 12px 24px rgba(0, 0, 0, 0.28), 0 0 0 1px rgba(225, 36, 48, 0.2);
+  background: #0b1b35;
+}
+.facility-select-card:not(.is-disabled):hover .facility-select-card-address,
+.facility-select-card:not(.is-disabled):focus-visible .facility-select-card-address {
+  color: #d6deeb;
+}
+.facility-select-card.is-disabled:hover {
+  border-color: rgba(125, 136, 155, 0.45);
+  transform: none;
 }
 .facility-select-card-price {
   color: var(--accent-red);
@@ -1643,10 +1671,14 @@ input { font-family: inherit; }
   font-size: 2.2rem;
   font-weight: 800;
   line-height: 1;
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  white-space: nowrap;
 }
 .schedule-venue-price small {
   color: #cbd3e2;
-  font-size: 0.55em;
+  font-size: 0.4em;
   font-weight: 500;
 }
 .schedule-section {
@@ -1729,7 +1761,7 @@ input { font-family: inherit; }
   border: 1px solid rgba(35, 54, 84, 0.9);
   background: rgba(8, 22, 48, 0.92);
   display: grid;
-  grid-template-columns: repeat(4, minmax(0, 1fr));
+  grid-template-columns: repeat(3, minmax(0, 1fr));
   gap: 8px;
   padding: 8px 10px;
 }
@@ -1750,7 +1782,6 @@ input { font-family: inherit; }
   flex-shrink: 0;
 }
 .schedule-legend .dot.available { color: #74c655; }
-.schedule-legend .dot.few { color: #f2a32e; }
 .schedule-legend .dot.full { color: #e32633; }
 .schedule-legend .dot.unavailable { color: #8f97a7; }
 .schedule-duration-grid {
@@ -1850,7 +1881,6 @@ input { font-family: inherit; }
   pointer-events: none;
 }
 .schedule-slot-dot.available { color: #72c754; }
-.schedule-slot-dot.few { color: #f2a32e; }
 .schedule-slot-dot.full { color: #e32633; }
 .schedule-slot.full {
   background: rgba(40, 20, 37, 0.42);

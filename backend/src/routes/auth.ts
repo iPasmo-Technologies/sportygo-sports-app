@@ -2,7 +2,7 @@ import { Router } from 'express';
 import jwt from 'jsonwebtoken';
 import { completePasswordReset, createUserPasswordAccount, findUserByEmail, findUserByEmailOrMobile, savePasswordResetCode, verifyPasswordResetCode } from '../lib/database';
 import { decryptClientPasswordPayload, decryptPasswordAtRest, encryptPasswordAtRest } from '../lib/authCrypto';
-import { sendPasswordResetPasscode } from '../lib/email';
+import { sendPasswordResetPasscode, sendWelcomeEmail } from '../lib/email';
 import { authMiddleware, type AuthenticatedRequest } from '../middleware/authMiddleware';
 
 const router = Router();
@@ -19,6 +19,12 @@ function maskEmail(email: string): string {
   const [localPart, domain] = email.split('@');
   if (!localPart || !domain) return email;
   return `${localPart.slice(0, 2)}***@${domain}`;
+}
+
+function notifyWelcomeEmail(input: Parameters<typeof sendWelcomeEmail>[0]): void {
+  void sendWelcomeEmail(input).catch((error) => {
+    console.error(`[auth:welcome] Welcome email failed for ${maskEmail(input.email)}`, error);
+  });
 }
 
 router.get('/profile', authMiddleware, async (req: AuthenticatedRequest, res) => {
@@ -105,6 +111,11 @@ router.post('/register', async (req, res) => {
     res.status(500).json({ error: 'Unable to create account. Please try again.' });
     return;
   }
+
+  notifyWelcomeEmail({
+    email: normalizedEmail,
+    fullName: normalizedName,
+  });
 
   const token = jwt.sign({ email: normalizedEmail }, JWT_SECRET, { expiresIn: '24h' });
   res.status(201).json({ token, email: normalizedEmail });

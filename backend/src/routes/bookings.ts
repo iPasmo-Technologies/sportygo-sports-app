@@ -98,6 +98,8 @@ router.post('/mock', authMiddleware, async (req: AuthenticatedRequest, res) => {
   try {
     await saveBooking({
       bookingType: payload.bookingType,
+      sportId: payload.sportId ?? null,
+      facilityCode: payload.facilityCode ?? null,
       selectedDate: payload.selectedDate,
       selectedTime: payload.selectedTime,
       durationMins: payload.durationMins,
@@ -270,6 +272,8 @@ router.post('/', authMiddleware, async (req: AuthenticatedRequest, res) => {
   try {
     await saveBooking({
       bookingType,
+      sportId: sportId ?? null,
+      facilityCode: facilityCode ?? null,
       selectedDate,
       selectedTime,
       durationMins,

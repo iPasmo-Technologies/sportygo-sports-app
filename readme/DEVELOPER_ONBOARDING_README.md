@@ -531,7 +531,7 @@ Docker still needs a correctly configured `backend/.env` because the backend con
 - Successful bookings display a confirmation and receipt ID.
 - Authenticated users can view booking history.
 - Users can view profile information and log out.
-- Email notifications can be sent for password resets and booking confirmations when SMTP is configured.
+- Email notifications can be sent for account welcomes, password resets, and booking confirmations when SMTP is configured.
 
 ## 14. Application User Flow
 

@@ -1,5 +1,4 @@
 import { useEffect, useState } from 'react';
-import { ChevronRight, ShieldCheck } from 'lucide-react';
 import { useApp, useSelectBookingType } from '@/context/AppContext';
 import { announce } from '@/lib/utils';
 import ScreenHeader from '@/components/ScreenHeader';
@@ -128,17 +127,6 @@ export default function SportSelectScreen() {
             </button>
           ))}
         </div>
-
-        <button type="button" className="sport-info-banner" aria-label="Explore and switch sports anytime">
-          <span className="sport-info-icon" aria-hidden="true">
-            <ShieldCheck size={20} strokeWidth={2.1} />
-          </span>
-          <span className="sport-info-text">
-            <strong>Not sure which one to choose?</strong>
-            <small>You can explore and switch sports anytime.</small>
-          </span>
-          <ChevronRight size={18} strokeWidth={2.4} className="sport-info-arrow" aria-hidden="true" />
-        </button>
 
       </div>
     </div>

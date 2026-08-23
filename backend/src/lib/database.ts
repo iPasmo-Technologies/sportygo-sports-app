@@ -89,12 +89,15 @@ export type BookingHistoryRow = {
   paymentMethod: 'ONLINE' | 'CASH';
   facilityTitle: string | null;
   facilityAddress: string | null;
+  facilityMapLocationUrl: string | null;
   facilityImageKey: SportFacilityRow['imageKey'] | null;
   facilityTag: string | null;
 };
 
 type BookingInput = {
   bookingType: string;
+  sportId?: SportRow['id'] | null;
+  facilityCode?: string | null;
   selectedDate: string;
   selectedTime: string;
   durationMins: number;
@@ -503,8 +506,6 @@ async function seedSystemConfigs(client: PoolClient): Promise<void> {
 }
 
 async function ensureSchema(client: PoolClient): Promise<void> {
-  await client.query('CREATE EXTENSION IF NOT EXISTS pgcrypto');
-
   await client.query(`
     CREATE TABLE IF NOT EXISTS users (
       id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
@@ -630,6 +631,15 @@ async function ensureSchema(client: PoolClient): Promise<void> {
   `);
 
   await client.query(`
+    UPDATE sports
+    SET enabled = FALSE,
+        updated_at = NOW(),
+        updated_by = 'system'
+    WHERE id IN ('futsal', 'sepak-takraw', 'tennis', 'table-tennis')
+      AND enabled IS DISTINCT FROM FALSE
+  `);
+
+  await client.query(`
     ALTER TABLE sports
     ALTER COLUMN banner_key SET NOT NULL
   `);
@@ -725,25 +735,10 @@ async function ensureSchema(client: PoolClient): Promise<void> {
 
   await client.query(`
     UPDATE sport_facilities
-    SET address = CASE facility_code
-      WHEN 'bowling-lane' THEN 'Kallang Sports Hub, 1 Stadium Walk, Singapore 397688'
-      WHEN 'net-2' THEN 'Singapore Indoor Stadium, 2 Stadium Walk, Singapore 397691'
-      WHEN 'net-3' THEN 'OCBC Square, 1 Stadium Place, Singapore 397628'
-      WHEN 'net-4' THEN 'National Stadium, 1 Stadium Drive, Singapore 397629'
-      WHEN 'indoor-court' THEN 'Kallang ActiveSG, 5 Stadium Walk, Singapore 397693'
-      WHEN 'outdoor-field' THEN 'Bishan ActiveSG, 21 Bishan Street 14, Singapore 579778'
-      ELSE address
-    END,
-    map_location_url = CASE facility_code
-      WHEN 'bowling-lane' THEN 'https://www.google.com/maps?q=Kallang%20Sports%20Hub%20Singapore'
-      WHEN 'net-2' THEN 'https://www.google.com/maps?q=Singapore%20Indoor%20Stadium'
-      WHEN 'net-3' THEN 'https://www.google.com/maps?q=OCBC%20Square%20Singapore'
-      WHEN 'net-4' THEN 'https://www.google.com/maps?q=National%20Stadium%20Singapore'
-      WHEN 'indoor-court' THEN 'https://www.google.com/maps?q=Kallang%20ActiveSG%20Singapore'
-      WHEN 'outdoor-field' THEN 'https://www.google.com/maps?q=Bishan%20ActiveSG%20Singapore'
-      ELSE map_location_url
-    END
-    WHERE address IS NULL OR map_location_url IS NULL
+    SET address = 'SportyGo @ DPS International School, 36 Aroozoo Ave, Singapore 539842',
+        map_location_url = 'https://maps.app.goo.gl/BWiBvM8FU3meALV27'
+    WHERE address IS DISTINCT FROM 'SportyGo @ DPS International School, 36 Aroozoo Ave, Singapore 539842'
+       OR map_location_url IS DISTINCT FROM 'https://maps.app.goo.gl/BWiBvM8FU3meALV27'
   `);
 
   await client.query('ALTER TABLE sport_facilities ALTER COLUMN address SET NOT NULL');
@@ -842,6 +837,8 @@ async function ensureSchema(client: PoolClient): Promise<void> {
     CREATE TABLE IF NOT EXISTS bookings (
       id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
       booking_type TEXT NOT NULL CHECK (booking_type IN ('court', 'coaching')),
+      sport_id TEXT NULL,
+      facility_code TEXT NULL,
       slot_date DATE NOT NULL,
       slot_time TIME NOT NULL,
       duration_mins INTEGER NOT NULL CHECK (duration_mins > 0),
@@ -878,6 +875,24 @@ async function ensureSchema(client: PoolClient): Promise<void> {
   await client.query('ALTER TABLE bookings ADD COLUMN IF NOT EXISTS facility_address TEXT NULL');
   await client.query('ALTER TABLE bookings ADD COLUMN IF NOT EXISTS facility_image_key TEXT NULL');
   await client.query('ALTER TABLE bookings ADD COLUMN IF NOT EXISTS facility_tag TEXT NULL');
+  await client.query('ALTER TABLE bookings ADD COLUMN IF NOT EXISTS sport_id TEXT NULL');
+  await client.query('ALTER TABLE bookings ADD COLUMN IF NOT EXISTS facility_code TEXT NULL');
+
+  await client.query(`
+    UPDATE bookings AS booking
+    SET sport_id = facility.sport_id,
+        facility_code = facility.facility_code
+    FROM sport_facilities AS facility
+    WHERE booking.sport_id IS NULL
+      AND booking.facility_code IS NULL
+      AND booking.facility_title = facility.title
+      AND facility.deleted_at IS NULL
+  `);
+
+  await client.query(`
+    CREATE INDEX IF NOT EXISTS idx_bookings_facility
+    ON bookings (sport_id, facility_code)
+  `);
 
   await client.query(`
     CREATE TABLE IF NOT EXISTS slot_reservations (
@@ -1303,6 +1318,8 @@ export async function saveBooking(input: BookingInput): Promise<void> {
       await client.query(
         `INSERT INTO bookings (
            booking_type,
+            sport_id,
+            facility_code,
            slot_date,
            slot_time,
            duration_mins,
@@ -1319,9 +1336,11 @@ export async function saveBooking(input: BookingInput): Promise<void> {
            payment_method,
            created_by,
            updated_by
-         ) VALUES ($1, $2, $3::time, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17)`,
+         ) VALUES ($1, $2, $3, $4, $5::time, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19)`,
         [
           input.bookingType,
+          input.sportId ?? null,
+          input.facilityCode ?? null,
           input.selectedDate,
           input.selectedTime,
           input.durationMins,
@@ -1373,16 +1392,21 @@ export async function listBookingsByCustomer(customerEmail: string): Promise<Boo
        duration_mins AS "durationMins",
        grand_total::float8 AS "grandTotal",
       pay_method AS "payMethod",
-       facility_title AS "facilityTitle",
-       facility_address AS "facilityAddress",
-       facility_image_key AS "facilityImageKey",
-       facility_tag AS "facilityTag",
-       status,
-       payment_method AS "paymentMethod"
-     FROM bookings
-     WHERE deleted_at IS NULL
-       AND LOWER(BTRIM(customer_email)) = $1
-     ORDER BY slot_date DESC, slot_time DESC`,
+       COALESCE(facility.title, booking.facility_title) AS "facilityTitle",
+       COALESCE(facility.address, booking.facility_address) AS "facilityAddress",
+       facility.map_location_url AS "facilityMapLocationUrl",
+       COALESCE(facility.image_key, booking.facility_image_key) AS "facilityImageKey",
+       COALESCE(facility.tag_label, booking.facility_tag) AS "facilityTag",
+       booking.status,
+       booking.payment_method AS "paymentMethod"
+     FROM bookings AS booking
+     LEFT JOIN sport_facilities AS facility
+       ON facility.sport_id = booking.sport_id
+      AND facility.facility_code = booking.facility_code
+      AND facility.deleted_at IS NULL
+     WHERE booking.deleted_at IS NULL
+       AND LOWER(BTRIM(booking.customer_email)) = $1
+     ORDER BY booking.slot_date DESC, booking.slot_time DESC`,
     [normalizedCustomerEmail]
   );
 }

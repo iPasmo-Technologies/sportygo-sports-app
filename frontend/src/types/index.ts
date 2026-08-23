@@ -248,6 +248,7 @@ export interface BookingHistoryItem {
   paymentMethod: 'ONLINE' | 'CASH';
   facilityTitle: string | null;
   facilityAddress: string | null;
+  facilityMapLocationUrl: string | null;
   facilityImageKey: SportFacilityImageKey | null;
   facilityTag: string | null;
 }

@@ -355,8 +355,7 @@ export default function SlotBookingScreen() {
 
           <div className="schedule-legend" aria-hidden="true">
             <span><Circle className="dot available" fill="currentColor" strokeWidth={0} />Available</span>
-            <span><Circle className="dot few" fill="currentColor" strokeWidth={0} />Few Slots</span>
-            <span><Circle className="dot full" fill="currentColor" strokeWidth={0} />Fully Booked</span>
+            <span><Circle className="dot full" fill="currentColor" strokeWidth={0} />Booked</span>
             <span><Circle className="dot unavailable" fill="currentColor" strokeWidth={0} />Unavailable</span>
           </div>
         </section>
@@ -414,11 +413,11 @@ export default function SlotBookingScreen() {
 
           {state.selectedDate && !state.slotsLoading && state.slots.length > 0 && (
             <div className="schedule-slot-grid">
-              {state.slots.map((s, index) => {
+              {state.slots.map((s) => {
                 const durationUnavailable = !s.booked && !s.past && !availableStartTimes.has(s.time);
                 const disabled = s.booked || s.past || durationUnavailable;
                 const sel = !disabled && state.selectedTime === s.time;
-                const mood = s.booked ? 'full' : s.past || durationUnavailable ? 'unavailable' : index % 4 === 2 ? 'few' : 'available';
+                const mood = s.booked ? 'full' : s.past || durationUnavailable ? 'unavailable' : 'available';
                 const endTime = addMinutes(s.time, state.durationMins);
                 return (
                   <div
