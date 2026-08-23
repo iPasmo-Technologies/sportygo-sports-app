@@ -137,6 +137,7 @@ export type UserAuthRow = {
   mobileNumber: string;
   passwordEncrypted: string;
   authProvider: string;
+  role: 'public' | 'coach' | 'admin';
   passwordResetCode?: string | null;
   passwordResetExpiresAt?: string | null;
 };
@@ -516,6 +517,7 @@ async function ensureSchema(client: PoolClient): Promise<void> {
       password_reset_code TEXT NULL,
       password_reset_expires_at TIMESTAMPTZ NULL,
       auth_provider TEXT NOT NULL DEFAULT 'password' CHECK (auth_provider IN ('password', 'google')),
+      role TEXT NOT NULL DEFAULT 'public' CHECK (role IN ('public', 'coach', 'admin')),
       created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
       updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
       deleted_at TIMESTAMPTZ NULL,
@@ -547,6 +549,12 @@ async function ensureSchema(client: PoolClient): Promise<void> {
   await client.query(`
     ALTER TABLE users
     ADD COLUMN IF NOT EXISTS password_reset_expires_at TIMESTAMPTZ
+  `);
+
+  await client.query(`
+    ALTER TABLE users
+    ADD COLUMN IF NOT EXISTS role TEXT NOT NULL DEFAULT 'public'
+      CHECK (role IN ('public', 'coach', 'admin'))
   `);
 
   await client.query(`
@@ -1442,7 +1450,8 @@ export async function findUserByEmail(email: string): Promise<UserAuthRow | null
             password_encrypted AS "passwordEncrypted",
             password_reset_code AS "passwordResetCode",
             password_reset_expires_at::text AS "passwordResetExpiresAt",
-            auth_provider AS "authProvider"
+            auth_provider AS "authProvider",
+            role
      FROM users
      WHERE deleted_at IS NULL
        AND LOWER(email) = LOWER($1)
@@ -1479,7 +1488,8 @@ export async function findUserByEmailOrMobile(loginId: string): Promise<UserAuth
             password_encrypted AS "passwordEncrypted",
                  password_reset_code AS "passwordResetCode",
                  password_reset_expires_at::text AS "passwordResetExpiresAt",
-            auth_provider AS "authProvider"
+            auth_provider AS "authProvider",
+            role
      FROM users
      WHERE deleted_at IS NULL
        AND (
@@ -1491,6 +1501,30 @@ export async function findUserByEmailOrMobile(loginId: string): Promise<UserAuth
   );
 
   return rows[0] ?? null;
+}
+
+export async function countUsersByMobileNumber(mobileNumber: string): Promise<number> {
+  const normalizedMobile = mobileNumber.trim().toLowerCase();
+
+  if (!pool) {
+    let count = 0;
+    for (const user of fallbackUsers.values()) {
+      if (user.mobileNumber.trim().toLowerCase() === normalizedMobile) {
+        count++;
+      }
+    }
+    return count;
+  }
+
+  const result = await query<{ count: string }>(
+    `SELECT COUNT(*) as count
+     FROM users
+     WHERE deleted_at IS NULL
+       AND LOWER(mobile_number) = LOWER($1)`,
+    [normalizedMobile]
+  );
+
+  return parseInt(result[0]?.count ?? '0', 10);
 }
 
 export async function updateUserPasswordByEmailOrMobile(input: {
@@ -1535,7 +1569,8 @@ export async function updateUserPasswordByEmailOrMobile(input: {
                password_encrypted AS "passwordEncrypted",
                password_reset_code AS "passwordResetCode",
                password_reset_expires_at::text AS "passwordResetExpiresAt",
-               auth_provider AS "authProvider"`,
+               auth_provider AS "authProvider",
+               role`,
     [normalizedLoginId, input.passwordEncrypted]
   );
 
@@ -1562,6 +1597,7 @@ export async function createUserPasswordAccount(input: {
       mobileNumber: input.mobileNumber,
       passwordEncrypted: input.passwordEncrypted,
       authProvider: 'password',
+      role: 'public',
       passwordResetCode: null,
       passwordResetExpiresAt: null,
     };
@@ -1577,9 +1613,10 @@ export async function createUserPasswordAccount(input: {
        mobile_number,
        password_encrypted,
        auth_provider,
+       role,
        created_by,
        updated_by
-     ) VALUES ($1, $2, $3, $4, 'password', $1, $1)
+     ) VALUES ($1, $2, $3, $4, 'password', 'public', $1, $1)
      ON CONFLICT (email) DO NOTHING
      RETURNING id,
                email,
@@ -1588,7 +1625,8 @@ export async function createUserPasswordAccount(input: {
                password_encrypted AS "passwordEncrypted",
                password_reset_code AS "passwordResetCode",
                password_reset_expires_at::text AS "passwordResetExpiresAt",
-               auth_provider AS "authProvider"`,
+               auth_provider AS "authProvider",
+               role`,
     [input.email, input.fullName, input.mobileNumber, input.passwordEncrypted]
   );
 
@@ -1638,7 +1676,8 @@ export async function savePasswordResetCode(input: {
                password_encrypted AS "passwordEncrypted",
                password_reset_code AS "passwordResetCode",
                password_reset_expires_at::text AS "passwordResetExpiresAt",
-               auth_provider AS "authProvider"`,
+               auth_provider AS "authProvider",
+               role`,
     [normalizedEmail, input.code, input.expiresAtIso]
   );
 
