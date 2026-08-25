@@ -5,7 +5,7 @@ import { announce } from '@/lib/utils';
 import homeBackground from '@/assets/home_bk.png';
 
 export default function HomeScreen() {
-  const { navigate } = useApp();
+  const { state, navigate } = useApp();
   const selectType = useSelectBookingType();
 
   function handleGetStarted() {
@@ -35,16 +35,18 @@ export default function HomeScreen() {
           <FaArrowRight className="home-hotspot-arrow" color="#ffffff" aria-hidden="true" />
         </Button>
 
-        <Button
-          className="home-hotspot home-hotspot-login home-hotspot-login-btn"
-          variant="secondary"
-          aria-label="Log In"
-          onClick={handleLogin}
-        >
-          <FaRegUser  className="home-hotspot-login-icon" color="#ffffff" aria-hidden="true" />
-          <span className="home-hotspot-label">Log In</span>
-          <FaArrowRight className="home-hotspot-arrow" color="#ffffff" aria-hidden="true" />
-        </Button>
+        {!state.isLoggedIn && (
+          <Button
+            className="home-hotspot home-hotspot-login home-hotspot-login-btn"
+            variant="secondary"
+            aria-label="Log In"
+            onClick={handleLogin}
+          >
+            <FaRegUser className="home-hotspot-login-icon" color="#ffffff" aria-hidden="true" />
+            <span className="home-hotspot-label">Log In</span>
+            <FaArrowRight className="home-hotspot-arrow" color="#ffffff" aria-hidden="true" />
+          </Button>
+        )}
 
         <div className="home-join-line" aria-label="Join the movement">
           <span>Join the movement.</span>

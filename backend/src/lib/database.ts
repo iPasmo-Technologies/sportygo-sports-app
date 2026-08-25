@@ -1,10 +1,9 @@
-import dotenv from 'dotenv';
+import 'dotenv/config';
 import { Pool, type PoolClient, type QueryResultRow } from 'pg';
 import DEFAULT_SPORTS from '../data/json/sports.json';
 import DEFAULT_SPORT_EVENTS from '../data/json/sport-events.json';
 import DEFAULT_SPORT_FACILITIES from '../data/json/sport-facilities.json';
-
-dotenv.config();
+import { decryptPasswordAtRest, encryptPasswordAtRest } from './authCrypto';
 
 export type PackageRow = {
   id: string;
@@ -142,6 +141,18 @@ export type UserAuthRow = {
   passwordResetExpiresAt?: string | null;
 };
 
+export type AdminSlotBlockResult = {
+  blockId: string;
+  sportId: SportRow['id'];
+  facilityCode: string;
+  facilityTitle: string;
+  blockedCount: number;
+  dates: string[];
+  startTime: string;
+  endTime: string;
+  reason: string;
+};
+
 export class SlotAlreadyBookedError extends Error {
   constructor(slotDate: string, slotTime: string) {
     super(`Slot ${slotDate} ${slotTime} is already booked.`);
@@ -160,6 +171,13 @@ export class SlotConfigurationMissingError extends Error {
   constructor(weekdayName: string) {
     super(`Slot configuration is missing for weekday ${weekdayName}.`);
     this.name = 'SlotConfigurationMissingError';
+  }
+}
+
+export class FacilityUnavailableError extends Error {
+  constructor() {
+    super('The selected sport facility does not exist or is disabled.');
+    this.name = 'FacilityUnavailableError';
   }
 }
 
@@ -781,12 +799,17 @@ async function ensureSchema(client: PoolClient): Promise<void> {
   await client.query(`
     UPDATE sport_facilities
     SET image_key = CASE facility_code
-      WHEN 'indoor-court' THEN 'pb-indoor-court'
-      WHEN 'outdoor-field' THEN 'pb-outdoor-court'
-      ELSE image_key
-    END,
-    updated_at = NOW(),
-    updated_by = 'system'
+          WHEN 'indoor-court' THEN 'pb-indoor-court'
+          WHEN 'outdoor-field' THEN 'pb-outdoor-court'
+          ELSE image_key
+        END,
+        price_label = CASE facility_code
+          WHEN 'indoor-court' THEN 'S$30'
+          WHEN 'outdoor-field' THEN 'S$25'
+          ELSE price_label
+        END,
+        updated_at = NOW(),
+        updated_by = 'system'
     WHERE sport_id = 'pickleball'
       AND facility_code IN ('indoor-court', 'outdoor-field')
   `);
@@ -809,6 +832,17 @@ async function ensureSchema(client: PoolClient): Promise<void> {
       updated_by TEXT NOT NULL DEFAULT 'system',
       UNIQUE (slot_date, slot_time)
     )
+  `);
+
+  await client.query('ALTER TABLE slots ADD COLUMN IF NOT EXISTS sport_id TEXT NULL');
+  await client.query('ALTER TABLE slots ADD COLUMN IF NOT EXISTS facility_code TEXT NULL');
+  await client.query('ALTER TABLE slots DROP CONSTRAINT IF EXISTS slots_slot_date_slot_time_key');
+  await client.query('DELETE FROM slots WHERE sport_id IS NULL OR facility_code IS NULL');
+  await client.query('ALTER TABLE slots ALTER COLUMN sport_id SET NOT NULL');
+  await client.query('ALTER TABLE slots ALTER COLUMN facility_code SET NOT NULL');
+  await client.query(`
+    CREATE UNIQUE INDEX IF NOT EXISTS idx_slots_facility_date_time_unique
+    ON slots (sport_id, facility_code, slot_date, slot_time)
   `);
 
   // Remove obsolete per-date slot configuration table from previous schema iteration.
@@ -917,9 +951,44 @@ async function ensureSchema(client: PoolClient): Promise<void> {
     )
   `);
 
+  await client.query('ALTER TABLE slot_reservations ADD COLUMN IF NOT EXISTS sport_id TEXT NULL');
+  await client.query('ALTER TABLE slot_reservations ADD COLUMN IF NOT EXISTS facility_code TEXT NULL');
+  await client.query('DELETE FROM slot_reservations WHERE sport_id IS NULL OR facility_code IS NULL');
+  await client.query('ALTER TABLE slot_reservations ALTER COLUMN sport_id SET NOT NULL');
+  await client.query('ALTER TABLE slot_reservations ALTER COLUMN facility_code SET NOT NULL');
+
+  await client.query(`
+    DROP INDEX IF EXISTS idx_slot_reservations_lookup
+  `);
   await client.query(`
     CREATE INDEX IF NOT EXISTS idx_slot_reservations_lookup
-    ON slot_reservations (slot_date, slot_time, status, expires_at)
+    ON slot_reservations (sport_id, facility_code, slot_date, slot_time, status, expires_at)
+  `);
+
+  await client.query(`
+    CREATE TABLE IF NOT EXISTS admin_slot_blocks (
+      id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+      admin_email TEXT NOT NULL,
+      selected_dates JSONB NOT NULL,
+      slot_start_time TIME NOT NULL,
+      slot_end_time TIME NOT NULL,
+      reason TEXT NOT NULL,
+      blocked_slot_count INTEGER NOT NULL DEFAULT 0,
+      created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+      updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+      deleted_at TIMESTAMPTZ NULL,
+      created_by TEXT NOT NULL,
+      updated_by TEXT NOT NULL
+    )
+  `);
+  await client.query('ALTER TABLE admin_slot_blocks ADD COLUMN IF NOT EXISTS sport_id TEXT NULL');
+  await client.query('ALTER TABLE admin_slot_blocks ADD COLUMN IF NOT EXISTS facility_code TEXT NULL');
+  await client.query('ALTER TABLE admin_slot_blocks ADD COLUMN IF NOT EXISTS facility_title TEXT NULL');
+
+  await client.query(`
+    CREATE INDEX IF NOT EXISTS idx_admin_slot_blocks_created_at
+    ON admin_slot_blocks (created_at DESC)
+    WHERE deleted_at IS NULL
   `);
 
   await client.query(`
@@ -948,6 +1017,44 @@ async function ensureSchema(client: PoolClient): Promise<void> {
   `);
 }
 
+async function ensureInitialAdminUser(client: PoolClient): Promise<void> {
+  const email = 'dharmichand@sportygo.com.sg';
+  const passwordEncrypted = await encryptPasswordAtRest('Admin@123');
+
+  const existingResult = await client.query<{ password_encrypted: string }>(
+    `SELECT password_encrypted
+     FROM users
+     WHERE email = $1
+     LIMIT 1`,
+    [email]
+  );
+  let repairPassword = existingResult.rowCount === 0;
+  if (existingResult.rows[0]?.password_encrypted) {
+    try {
+      await decryptPasswordAtRest(existingResult.rows[0].password_encrypted);
+    } catch {
+      repairPassword = true;
+    }
+  }
+
+  await client.query(
+    `INSERT INTO users (
+       email, full_name, mobile_number, password_encrypted, auth_provider, role, created_by, updated_by
+     ) VALUES ($1, $2, $3, $4, 'password', 'admin', 'system', 'system')
+     ON CONFLICT (email)
+     DO UPDATE SET
+       role = 'admin',
+       password_encrypted = CASE
+         WHEN $5::boolean THEN EXCLUDED.password_encrypted
+         ELSE users.password_encrypted
+       END,
+       updated_at = NOW(),
+       updated_by = 'system',
+       deleted_at = NULL`,
+    [email, 'Dharmichand', '+6500000000', passwordEncrypted, repairPassword]
+  );
+}
+
 export async function ensureDatabaseReady(): Promise<void> {
   if (!pool) {
     return;
@@ -959,6 +1066,7 @@ export async function ensureDatabaseReady(): Promise<void> {
       try {
         await client.query('BEGIN');
         await ensureSchema(client);
+        await ensureInitialAdminUser(client);
         await client.query('COMMIT');
       } catch (error) {
         await client.query('ROLLBACK');
@@ -1117,7 +1225,12 @@ export async function listSportFacilities(sportId: SportRow['id']): Promise<Spor
   );
 }
 
-export async function ensureSlotsForDate(client: PoolClient, dateStr: string): Promise<void> {
+export async function ensureSlotsForDate(
+  client: PoolClient,
+  dateStr: string,
+  sportId: SportRow['id'],
+  facilityCode: string
+): Promise<void> {
   const weekdayName = weekdayNameForDate(dateStr);
 
   const configResult = await client.query<SlotWeekdayConfiguration>(
@@ -1144,6 +1257,8 @@ export async function ensureSlotsForDate(client: PoolClient, dateStr: string): P
   await client.query(
     `DELETE FROM slots s
      WHERE s.slot_date = $1
+       AND s.sport_id = $4
+       AND s.facility_code = $5
        AND s.deleted_at IS NULL
        AND s.is_booked = FALSE
        AND (s.slot_time < $2::time OR s.slot_time >= $3::time)
@@ -1151,50 +1266,79 @@ export async function ensureSlotsForDate(client: PoolClient, dateStr: string): P
          SELECT 1
          FROM bookings b
          WHERE b.slot_date = s.slot_date
+           AND b.sport_id = s.sport_id
+           AND b.facility_code = s.facility_code
            AND b.deleted_at IS NULL
            AND s.slot_time >= b.slot_time
            AND s.slot_time < (b.slot_time + make_interval(mins => b.duration_mins))
        )`,
-    [dateStr, config.slotStartTime.slice(0, 5), config.slotEndTime.slice(0, 5)]
+    [dateStr, config.slotStartTime.slice(0, 5), config.slotEndTime.slice(0, 5), sportId, facilityCode]
   );
 
   const existingRows = await client.query<{ slot_time: string }>(
     `SELECT slot_time::text AS slot_time
      FROM slots
      WHERE slot_date = $1
+       AND sport_id = $2
+       AND facility_code = $3
        AND deleted_at IS NULL`,
-    [dateStr]
+     [dateStr, sportId, facilityCode]
   );
 
   const existingTimes = new Set(existingRows.rows.map((row) => row.slot_time.slice(0, 5)));
   const slotsToInsert = generatedSlots.filter((slot) => !existingTimes.has(slot.time));
-  if (slotsToInsert.length === 0) {
-    return;
+  if (slotsToInsert.length > 0) {
+    const values: unknown[] = [];
+    const placeholders = slotsToInsert.map((slot, index) => {
+      const base = index * 7;
+      values.push(sportId, facilityCode, dateStr, slot.time, slot.booked, 'system', 'system');
+      return `($${base + 1}, $${base + 2}, $${base + 3}, $${base + 4}, $${base + 5}, NOW(), NOW(), $${base + 6}, $${base + 7})`;
+    });
+
+    await client.query(
+      `INSERT INTO slots (sport_id, facility_code, slot_date, slot_time, is_booked, created_at, updated_at, created_by, updated_by)
+       VALUES ${placeholders.join(', ')}
+       ON CONFLICT (sport_id, facility_code, slot_date, slot_time) DO NOTHING`,
+      values
+    );
   }
 
-  const values: unknown[] = [];
-  const placeholders = slotsToInsert.map((slot, index) => {
-    const base = index * 5;
-    values.push(dateStr, slot.time, slot.booked, 'system', 'system');
-    return `($${base + 1}, $${base + 2}, $${base + 3}, NOW(), NOW(), $${base + 4}, $${base + 5})`;
-  });
-
+  // Blocks created before facility-scoped inventory were intentionally global.
   await client.query(
-    `INSERT INTO slots (slot_date, slot_time, is_booked, created_at, updated_at, created_by, updated_by)
-     VALUES ${placeholders.join(', ')}
-     ON CONFLICT (slot_date, slot_time) DO NOTHING`,
-    values
+    `UPDATE slots s
+     SET is_booked = TRUE,
+         updated_at = NOW(),
+         updated_by = 'legacy-admin-block'
+     WHERE s.sport_id = $1
+       AND s.facility_code = $2
+       AND s.slot_date = $3
+       AND s.deleted_at IS NULL
+       AND EXISTS (
+         SELECT 1
+         FROM admin_slot_blocks block
+         WHERE block.sport_id IS NULL
+           AND block.facility_code IS NULL
+           AND block.deleted_at IS NULL
+           AND block.selected_dates ? ($3::date)::text
+           AND s.slot_time >= block.slot_start_time
+           AND s.slot_time < block.slot_end_time
+       )`,
+    [sportId, facilityCode, dateStr]
   );
 }
 
-export async function listSlotsForDate(dateStr: string): Promise<SlotRow[]> {
+export async function listSlotsForDate(
+  dateStr: string,
+  sportId: SportRow['id'],
+  facilityCode: string
+): Promise<SlotRow[]> {
   if (!pool) {
     throw new Error('DATABASE_URL is not configured. Slot listing requires a configured database.');
   }
 
   return withDatabaseClient(async (client) => {
     const currentDateTime = currentSingaporeDateTimeParts();
-    await ensureSlotsForDate(client, dateStr);
+    await ensureSlotsForDate(client, dateStr, sportId, facilityCode);
     const result = await client.query<{ slot_time: string; is_booked: boolean }>(
       `SELECT s.slot_time::text AS slot_time,
               (
@@ -1202,6 +1346,8 @@ export async function listSlotsForDate(dateStr: string): Promise<SlotRow[]> {
                   SELECT 1
                   FROM bookings b
                   WHERE b.slot_date = s.slot_date
+                    AND b.sport_id = s.sport_id
+                    AND b.facility_code = s.facility_code
                     AND b.deleted_at IS NULL
                     AND s.slot_time >= b.slot_time
                     AND s.slot_time < (b.slot_time + make_interval(mins => b.duration_mins))
@@ -1210,23 +1356,107 @@ export async function listSlotsForDate(dateStr: string): Promise<SlotRow[]> {
                   FROM slot_reservations sr
                   WHERE sr.slot_date = s.slot_date
                     AND sr.slot_time = s.slot_time
+                    AND sr.sport_id = s.sport_id
+                    AND sr.facility_code = s.facility_code
                     AND sr.status = 'pending'
                     AND sr.expires_at > NOW()
                 )
               ) AS is_booked
        FROM slots s
        WHERE s.slot_date = $1
+         AND s.sport_id = $2
+         AND s.facility_code = $3
          AND s.deleted_at IS NULL
        ORDER BY s.slot_time ASC`,
-      [dateStr]
+      [dateStr, sportId, facilityCode]
     );
 
     return result.rows.map((row) => ({
       time: row.slot_time.slice(0, 5),
-      key: `${dateStr}_${row.slot_time.slice(0, 5)}`,
+      key: `${sportId}_${facilityCode}_${dateStr}_${row.slot_time.slice(0, 5)}`,
       booked: row.is_booked,
       past: isPastOrCurrentSlot(dateStr, row.slot_time.slice(0, 5), currentDateTime),
     }));
+  });
+}
+
+export async function blockSlotsForAdmin(input: {
+  adminEmail: string;
+  sportId: SportRow['id'];
+  facilityCode: string;
+  dates: string[];
+  startTime: string;
+  endTime: string;
+  reason: string;
+}): Promise<AdminSlotBlockResult> {
+  if (!pool) {
+    throw new Error('DATABASE_URL is not configured. Slot blocking requires a configured database.');
+  }
+
+  const dates = [...new Set(input.dates)].sort();
+  const adminEmail = input.adminEmail.trim().toLowerCase();
+  const reason = input.reason.trim() || 'Admin blocked';
+  let blockedCount = 0;
+
+  return withDatabaseClient(async (client) => {
+    await client.query('BEGIN');
+    try {
+      const facilityResult = await client.query<{ title: string }>(
+        `SELECT title FROM sport_facilities
+         WHERE sport_id = $1 AND facility_code = $2 AND enabled = TRUE AND deleted_at IS NULL
+         LIMIT 1`,
+        [input.sportId, input.facilityCode]
+      );
+      if (facilityResult.rowCount === 0) {
+        throw new Error('Selected facility does not exist or is disabled.');
+      }
+      const facilityTitle = facilityResult.rows[0].title;
+
+      for (const date of dates) {
+        await ensureSlotsForDate(client, date, input.sportId, input.facilityCode);
+        const result = await client.query(
+          `UPDATE slots
+           SET is_booked = TRUE,
+               updated_at = NOW(),
+               updated_by = $4
+           WHERE slot_date = $1
+             AND sport_id = $5
+             AND facility_code = $6
+             AND slot_time >= $2::time
+             AND slot_time < $3::time
+             AND is_booked = FALSE
+             AND deleted_at IS NULL`,
+          [date, input.startTime, input.endTime, adminEmail, input.sportId, input.facilityCode]
+        );
+        blockedCount += result.rowCount ?? 0;
+      }
+
+      const blockResult = await client.query<{ id: string }>(
+        `INSERT INTO admin_slot_blocks (
+           admin_email, sport_id, facility_code, facility_title,
+           selected_dates, slot_start_time, slot_end_time, reason,
+           blocked_slot_count, created_by, updated_by
+         ) VALUES ($1, $2, $3, $4, $5::jsonb, $6::time, $7::time, $8, $9, $1, $1)
+         RETURNING id`,
+        [adminEmail, input.sportId, input.facilityCode, facilityTitle, JSON.stringify(dates), input.startTime, input.endTime, reason, blockedCount]
+      );
+
+      await client.query('COMMIT');
+      return {
+        blockId: blockResult.rows[0].id,
+        sportId: input.sportId,
+        facilityCode: input.facilityCode,
+        facilityTitle,
+        blockedCount,
+        dates,
+        startTime: input.startTime,
+        endTime: input.endTime,
+        reason,
+      };
+    } catch (error) {
+      await client.query('ROLLBACK');
+      throw error;
+    }
   });
 }
 
@@ -1241,6 +1471,18 @@ export async function saveBooking(input: BookingInput): Promise<void> {
     await client.query('BEGIN');
     try {
       const currentDateTime = currentSingaporeDateTimeParts();
+      if (!input.sportId || !input.facilityCode) {
+        throw new FacilityUnavailableError();
+      }
+      const facilityResult = await client.query(
+        `SELECT 1 FROM sport_facilities
+         WHERE sport_id = $1 AND facility_code = $2 AND enabled = TRUE AND deleted_at IS NULL
+         LIMIT 1`,
+        [input.sportId, input.facilityCode]
+      );
+      if (facilityResult.rowCount === 0) {
+        throw new FacilityUnavailableError();
+      }
       if (isPastOrCurrentSlot(input.selectedDate, input.selectedTime, currentDateTime)) {
         // Allow booking to proceed if the user holds a valid reservation (locked before slot became past)
         let bypassPastCheck = false;
@@ -1250,10 +1492,12 @@ export async function saveBooking(input: BookingInput): Promise<void> {
              WHERE lock_token = $1
                AND slot_date = $2
                AND slot_time = $3::time
-               AND LOWER(BTRIM(customer_email)) = $4
+               AND sport_id = $4
+               AND facility_code = $5
+               AND LOWER(BTRIM(customer_email)) = $6
                AND status = 'pending'
                AND expires_at > NOW()`,
-            [input.lockToken, input.selectedDate, input.selectedTime, customerEmail]
+            [input.lockToken, input.selectedDate, input.selectedTime, input.sportId, input.facilityCode, customerEmail]
           );
           bypassPastCheck = (lockResult.rowCount ?? 0) > 0;
         }
@@ -1262,7 +1506,7 @@ export async function saveBooking(input: BookingInput): Promise<void> {
         }
       }
 
-      await ensureSlotsForDate(client, input.selectedDate);
+      await ensureSlotsForDate(client, input.selectedDate, input.sportId, input.facilityCode);
       const requiredSegments = Math.max(1, Math.ceil(input.durationMins / SLOT_INTERVAL_MINUTES));
 
       // Lock every 30-min segment covered by this booking window.
@@ -1272,12 +1516,14 @@ export async function saveBooking(input: BookingInput): Promise<void> {
                 is_booked
          FROM slots
          WHERE slot_date = $1
+           AND sport_id = $4
+           AND facility_code = $5
            AND slot_time >= $2::time
            AND slot_time < ($2::time + make_interval(mins => $3))
            AND deleted_at IS NULL
          ORDER BY slot_time ASC
          FOR UPDATE`,
-        [input.selectedDate, input.selectedTime, input.durationMins]
+        [input.selectedDate, input.selectedTime, input.durationMins, input.sportId, input.facilityCode]
       );
 
       const hasAllSegments = lockWindowResult.rowCount === requiredSegments;
@@ -1287,11 +1533,13 @@ export async function saveBooking(input: BookingInput): Promise<void> {
            SELECT 1
            FROM bookings b
            WHERE b.slot_date = $1
+             AND b.sport_id = $4
+             AND b.facility_code = $5
              AND b.deleted_at IS NULL
              AND $2::time < (b.slot_time + make_interval(mins => b.duration_mins))
              AND b.slot_time < ($2::time + make_interval(mins => $3))
          ) AS overlaps`,
-        [input.selectedDate, input.selectedTime, input.durationMins]
+        [input.selectedDate, input.selectedTime, input.durationMins, input.sportId, input.facilityCode]
       );
       const hasBookingOverlap = bookingOverlapResult.rows[0]?.overlaps ?? false;
       const hasGapInSegments = lockWindowResult.rows.some((row, index, rows) => {
@@ -1742,6 +1990,7 @@ export async function seedDatabase(): Promise<void> {
     await client.query('BEGIN');
     try {
       await ensureSchema(client);
+      await ensureInitialAdminUser(client);
       await client.query('DELETE FROM sport_facilities');
       await client.query('DELETE FROM sport_events');
       await client.query('DELETE FROM sports');
@@ -1883,6 +2132,8 @@ export async function getConfigBoolean(configType: string, configKey: string, fa
 }
 
 export async function reserveSlot(
+  sportId: SportRow['id'],
+  facilityCode: string,
   slotDate: string,
   slotTime: string,
   durationMins: number,
@@ -1905,16 +2156,19 @@ export async function reserveSlot(
 
       // Lock the slot rows to prevent concurrent reservations
       const requiredSegments = Math.max(1, Math.ceil(durationMins / SLOT_INTERVAL_MINUTES));
+      await ensureSlotsForDate(client, slotDate, sportId, facilityCode);
       const lockResult = await client.query<{ id: string; is_booked: boolean }>(
         `SELECT id, is_booked
          FROM slots
          WHERE slot_date = $1
+           AND sport_id = $4
+           AND facility_code = $5
            AND slot_time >= $2::time
            AND slot_time < ($2::time + make_interval(mins => $3))
            AND deleted_at IS NULL
          ORDER BY slot_time ASC
          FOR UPDATE`,
-        [slotDate, slotTime, durationMins]
+        [slotDate, slotTime, durationMins, sportId, facilityCode]
       );
 
       if ((lockResult.rowCount ?? 0) < requiredSegments || lockResult.rows.some((r) => r.is_booked)) {
@@ -1926,10 +2180,12 @@ export async function reserveSlot(
         `SELECT id FROM slot_reservations
          WHERE slot_date = $1
            AND slot_time = $2::time
+           AND sport_id = $4
+           AND facility_code = $5
            AND status = 'pending'
            AND expires_at > NOW()
            AND LOWER(BTRIM(customer_email)) != $3`,
-        [slotDate, slotTime, customerEmail]
+        [slotDate, slotTime, customerEmail, sportId, facilityCode]
       );
 
       if ((conflictResult.rowCount ?? 0) > 0) {
@@ -1941,14 +2197,15 @@ export async function reserveSlot(
         `UPDATE slot_reservations
          SET status = 'released', updated_at = NOW()
          WHERE slot_date = $1 AND slot_time = $2::time
-           AND LOWER(BTRIM(customer_email)) = $3 AND status = 'pending'`,
-        [slotDate, slotTime, customerEmail]
+          AND sport_id = $4 AND facility_code = $5
+          AND LOWER(BTRIM(customer_email)) = $3 AND status = 'pending'`,
+        [slotDate, slotTime, customerEmail, sportId, facilityCode]
       );
 
       await client.query(
-        `INSERT INTO slot_reservations (slot_date, slot_time, customer_email, lock_token, expires_at)
-         VALUES ($1, $2::time, $3, $4, NOW() + make_interval(mins => $5))`,
-        [slotDate, slotTime, customerEmail, lockToken, ttlMins]
+        `INSERT INTO slot_reservations (sport_id, facility_code, slot_date, slot_time, customer_email, lock_token, expires_at)
+         VALUES ($1, $2, $3, $4::time, $5, $6, NOW() + make_interval(mins => $7))`,
+        [sportId, facilityCode, slotDate, slotTime, customerEmail, lockToken, ttlMins]
       );
 
       await client.query('COMMIT');

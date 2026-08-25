@@ -1,6 +1,6 @@
 import { Router } from 'express';
 import { authMiddleware, type AuthenticatedRequest } from '../middleware/authMiddleware';
-import { listBookingsByCustomer, saveBooking, SlotAlreadyBookedError, SlotConfigurationMissingError, type SportFacilityRow } from '../lib/database';
+import { FacilityUnavailableError, listBookingsByCustomer, saveBooking, SlotAlreadyBookedError, SlotConfigurationMissingError, type SportFacilityRow } from '../lib/database';
 import { getStripeClient, isStripeConfigured, toMinorCurrencyUnits } from '../lib/stripe';
 import { calculateBookingPricing } from '../lib/bookingPricing';
 import { type SportRow } from '../lib/database';
@@ -75,7 +75,7 @@ router.post('/mock', authMiddleware, async (req: AuthenticatedRequest, res) => {
     lockToken?: string | null;
   };
 
-  if (!payload.bookingType || !payload.selectedDate || !payload.selectedTime || !payload.receiptId
+  if (!payload.bookingType || !payload.sportId || !payload.facilityCode || !payload.selectedDate || !payload.selectedTime || !payload.receiptId
     || !Number.isFinite(payload.durationMins) || payload.durationMins <= 0) {
     res.status(400).json({ error: 'Incomplete mock booking details.' });
     return;
@@ -117,6 +117,10 @@ router.post('/mock', authMiddleware, async (req: AuthenticatedRequest, res) => {
       lockToken: payload.lockToken ?? null,
     });
   } catch (error) {
+    if (error instanceof FacilityUnavailableError) {
+      res.status(400).json({ error: error.message });
+      return;
+    }
     if (error instanceof SlotAlreadyBookedError) {
       res.status(409).json({ error: 'This slot is no longer available.' });
       return;
@@ -186,7 +190,7 @@ router.post('/', authMiddleware, async (req: AuthenticatedRequest, res) => {
   if (!Number.isFinite(durationMins) || durationMins <= 0) missingFields.push('durationMins');
   if (!Number.isFinite(grandTotal) || grandTotal < 0) missingFields.push('grandTotal');
   if (customerEmail && !EMAIL_RE.test(customerEmail)) missingFields.push('customerEmail(valid format)');
-  if (bookingType === 'court' && (!sportId || !facilityCode)) missingFields.push('sportId', 'facilityCode');
+  if (!sportId || !facilityCode) missingFields.push('sportId', 'facilityCode');
 
   if (missingFields.length > 0) {
     res.status(400).json({
@@ -291,6 +295,10 @@ router.post('/', authMiddleware, async (req: AuthenticatedRequest, res) => {
       lockToken: lockToken ?? null,
     });
   } catch (error) {
+    if (error instanceof FacilityUnavailableError) {
+      res.status(400).json({ error: error.message });
+      return;
+    }
     if (error instanceof SlotAlreadyBookedError) {
       res.status(409).json({
         error: 'This slot is already booked. Please select a different time slot.',

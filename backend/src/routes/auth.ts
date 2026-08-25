@@ -172,6 +172,11 @@ router.post('/login', async (req, res) => {
     return;
   }
 
+  if (!['public', 'coach', 'admin'].includes(user.role)) {
+    res.status(403).json({ error: 'This account role is not permitted to access the application.' });
+    return;
+  }
+
   let storedPlainPassword = '';
   try {
     storedPlainPassword = await decryptPasswordAtRest(user.passwordEncrypted);

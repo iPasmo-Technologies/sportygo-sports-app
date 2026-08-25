@@ -2,7 +2,7 @@
 // Shared application types
 // ─────────────────────────────────────────────────────────────
 
-export type Screen = 'home' | 'sport-select' | 'sport-events' | 'facility-select' | 'schedule' | 'terms' | 'login' | 'forgot-password' | 'checkout' | 'booking-confirmation' | 'bookings' | 'profile' | 'payment-test';
+export type Screen = 'home' | 'sport-select' | 'sport-events' | 'facility-select' | 'schedule' | 'terms' | 'login' | 'forgot-password' | 'checkout' | 'booking-confirmation' | 'bookings' | 'profile' | 'payment-test' | 'block-slots';
 export type UserRole = 'public' | 'coach' | 'admin';
 export type SportId = 'cricket' | 'indoor-cricket' | 'pickleball' | 'futsal' | 'sepak-takraw' | 'tennis' | 'table-tennis' | 'soccer' | 'volleyball' | 'badminton' | 'basketball' | 'kabaddi';
 export type SportImageKey = SportId;
@@ -217,6 +217,21 @@ export interface RegisterPayload {
 
 export interface SlotsResponse {
   slots: TimeSlot[];
+}
+
+export interface AdminSlotBlockPayload {
+  sportId: SportId;
+  facilityCode: string;
+  dates: string[];
+  startTime: string;
+  endTime: string;
+  reason: string;
+}
+
+export interface AdminSlotBlockResponse extends AdminSlotBlockPayload {
+  blockId: string;
+  facilityTitle: string;
+  blockedCount: number;
 }
 
 export interface SportsResponse {
