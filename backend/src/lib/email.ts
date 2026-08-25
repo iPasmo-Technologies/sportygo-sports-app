@@ -39,6 +39,62 @@ export type WelcomeEmail = {
   fullName: string;
 };
 
+export type AdminSlotBlockEmail = {
+  adminEmail: string;
+  sportId: string;
+  sportLabel: string;
+  facilityCode: string;
+  facilityTitle: string;
+  dates: string[];
+  startTime: string;
+  endTime: string;
+  blockedCount: number;
+  reason: string;
+  blockId: string;
+};
+
+export async function sendAdminSlotBlockEmail(input: AdminSlotBlockEmail): Promise<void> {
+  if (!hasSmtpConfig()) {
+    console.warn('[admin:block-slots] SMTP not configured; email not sent.', input.adminEmail);
+    return;
+  }
+
+  const subject = `SportyGo slot block confirmation (${input.blockedCount} slots)`;
+  const text = [
+    'SportyGo admin slot block confirmation',
+    `Reference: ${input.blockId}`,
+    `Sport: ${input.sportLabel}`,
+    `Facility: ${input.facilityTitle} (${input.facilityCode})`,
+    `Dates: ${input.dates.join(', ')}`,
+    `Time range: ${input.startTime} - ${input.endTime}`,
+    `Newly blocked slots: ${input.blockedCount}`,
+    `Reason: ${input.reason}`,
+    'Payment: Not applicable',
+  ].join('\n');
+  const html = `
+    <div style="font-family:Arial,sans-serif;background:#051328;color:#edf1f7;padding:24px;max-width:560px;border-radius:16px;">
+      <p style="margin:0 0 8px;font-size:20px;">${SPORTYGO_BRAND_HTML}</p>
+      <h1 style="margin:0 0 16px;font-size:24px;">Slots Blocked</h1>
+      <p><strong>Reference</strong><br>${escapeHtml(input.blockId)}</p>
+      <p><strong>Sport</strong><br>${escapeHtml(input.sportLabel)}</p>
+      <p><strong>Facility</strong><br>${escapeHtml(input.facilityTitle)} (${escapeHtml(input.facilityCode)})</p>
+      <p><strong>Dates</strong><br>${input.dates.map(escapeHtml).join(', ')}</p>
+      <p><strong>Time range</strong><br>${escapeHtml(input.startTime)} - ${escapeHtml(input.endTime)}</p>
+      <p><strong>Newly blocked slots</strong><br>${input.blockedCount}</p>
+      <p><strong>Reason</strong><br>${escapeHtml(input.reason)}</p>
+      <p style="color:#d4a556;font-weight:700;">Payment not applicable</p>
+    </div>`;
+
+  const transporter = nodemailer.createTransport({
+    host: SMTP_HOST,
+    port: SMTP_PORT,
+    secure: SMTP_PORT === 465,
+    auth: { user: SMTP_USER, pass: SMTP_PASS },
+  });
+
+  await transporter.sendMail({ from: SMTP_FROM, to: input.adminEmail, subject, text, html });
+}
+
 export async function sendWelcomeEmail(input: WelcomeEmail): Promise<void> {
   if (!hasSmtpConfig()) {
     console.warn('[auth:welcome] SMTP not configured; email not sent.', input.email);

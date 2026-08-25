@@ -1,6 +1,6 @@
 import type { TimeSlot } from '@/types';
 
-const LS_BOOKED_KEY = 'pkl_sg_local_booked_slots_v1';
+const LS_BOOKED_KEY = 'pkl_sg_local_booked_slots_v2';
 
 type LocalBookedMap = Record<string, true>;
 
@@ -27,20 +27,20 @@ function writeMap(map: LocalBookedMap): void {
   }
 }
 
-export function makeSlotKey(date: string, time: string): string {
-  return `${date}_${time}`;
+export function makeSlotKey(sportId: string, facilityCode: string, date: string, time: string): string {
+  return `${sportId}_${facilityCode}_${date}_${time}`;
 }
 
-export function markLocalBooked(date: string, time: string): void {
+export function markLocalBooked(sportId: string, facilityCode: string, date: string, time: string): void {
   const map = readMap();
-  map[makeSlotKey(date, time)] = true;
+  map[makeSlotKey(sportId, facilityCode, date, time)] = true;
   writeMap(map);
 }
 
-export function mergeWithLocalBooked(date: string, slots: TimeSlot[]): TimeSlot[] {
+export function mergeWithLocalBooked(sportId: string, facilityCode: string, date: string, slots: TimeSlot[]): TimeSlot[] {
   const map = readMap();
   return slots.map(slot => {
-    const forcedBooked = map[makeSlotKey(date, slot.time)] === true;
+    const forcedBooked = map[makeSlotKey(sportId, facilityCode, date, slot.time)] === true;
     return forcedBooked ? { ...slot, booked: true } : slot;
   });
 }

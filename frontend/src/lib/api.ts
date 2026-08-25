@@ -1,4 +1,6 @@
 import type {
+  AdminSlotBlockPayload,
+  AdminSlotBlockResponse,
   BookingHistoryResponse,
   BookingPayload,
   BookingResponse,
@@ -50,9 +52,9 @@ function isAuthTokenError(error: unknown): boolean {
   return error instanceof Error && /invalid or expired token/i.test(error.message);
 }
 
-function isPreBooked(date: string, time: string): boolean {
+function isPreBooked(sportId: SportId, facilityCode: string, date: string, time: string): boolean {
   let hash = 0;
-  const seed = `${date}_${time}`;
+  const seed = `${sportId}_${facilityCode}_${date}_${time}`;
   for (let i = 0; i < seed.length; i++) {
     hash = Math.imul(31, hash) + seed.charCodeAt(i) | 0;
   }
@@ -89,7 +91,7 @@ function isPastOrCurrentSlot(date: string, time: string, reference: SingaporeDat
   return date === reference.date && toMinutes(time) <= toMinutes(reference.time);
 }
 
-function buildLocalSlots(date: string): SlotsResponse {
+function buildLocalSlots(date: string, sportId: SportId, facilityCode: string): SlotsResponse {
   const slots: SlotsResponse['slots'] = [];
   const currentDateTime = currentSingaporeDateTimeParts();
 
@@ -99,8 +101,8 @@ function buildLocalSlots(date: string): SlotsResponse {
       const past = isPastOrCurrentSlot(date, time, currentDateTime);
       slots.push({
         time,
-        key: `${date}_${time}`,
-        booked: isPreBooked(date, time),
+        key: `${sportId}_${facilityCode}_${date}_${time}`,
+        booked: isPreBooked(sportId, facilityCode, date, time),
         past,
       });
     }
@@ -246,19 +248,31 @@ export async function resetPasswordWithCode(email: string, code: string, passwor
 
 // ─── Slots ────────────────────────────────────────────────────
 
-export async function fetchSlots(date: string): Promise<SlotsResponse> {
+export async function fetchSlots(date: string, sportId: SportId, facilityCode: string): Promise<SlotsResponse> {
   let response: SlotsResponse;
   try {
-    response = await request<SlotsResponse>(`/api/slots?date=${encodeURIComponent(date)}`);
+    const query = new URLSearchParams({ date, sportId, facilityCode });
+    response = await request<SlotsResponse>(`/api/slots?${query.toString()}`);
   } catch (error) {
     // Keep Schedule usable in demo/dev when backend is temporarily unavailable.
     if (!isNetworkError(error) && !isUnavailableApiError(error)) throw error;
-    response = buildLocalSlots(date);
+    response = buildLocalSlots(date, sportId, facilityCode);
   }
 
   return {
-    slots: mergeWithLocalBooked(date, response.slots),
+    slots: mergeWithLocalBooked(sportId, facilityCode, date, response.slots),
   };
+}
+
+export async function blockSlotsForAdmin(
+  payload: AdminSlotBlockPayload,
+  token: string
+): Promise<AdminSlotBlockResponse> {
+  return request<AdminSlotBlockResponse>('/api/slots/block', {
+    method: 'POST',
+    headers: { Authorization: `Bearer ${token}` },
+    body: JSON.stringify(payload),
+  });
 }
 
 // ─── Sports ──────────────────────────────────────────────────
@@ -353,7 +367,7 @@ export interface SlotReservationResponse {
 }
 
 export async function reserveSlotForBooking(
-  payload: { selectedDate: string; selectedTime: string; durationMins: number },
+  payload: { sportId: SportId; facilityCode: string; selectedDate: string; selectedTime: string; durationMins: number },
   token: string
 ): Promise<SlotReservationResponse> {
   return request<SlotReservationResponse>('/api/slots/reserve', {
@@ -399,7 +413,7 @@ export async function createBooking(
   token: string
 ): Promise<BookingResponse> {
   // Block the slot first on the client to satisfy booking-first workflow.
-  markLocalBooked(payload.selectedDate, payload.selectedTime);
+  markLocalBooked(payload.sportId, payload.facilityCode, payload.selectedDate, payload.selectedTime);
 
   try {
     return await request<BookingResponse>('/api/bookings', {
@@ -433,7 +447,7 @@ export async function createMockBooking(
   payload: BookingPayload,
   token: string
 ): Promise<BookingResponse> {
-  markLocalBooked(payload.selectedDate, payload.selectedTime);
+  markLocalBooked(payload.sportId, payload.facilityCode, payload.selectedDate, payload.selectedTime);
   return request<BookingResponse>('/api/bookings/mock', {
     method: 'POST',
     headers: { Authorization: `Bearer ${token}` },

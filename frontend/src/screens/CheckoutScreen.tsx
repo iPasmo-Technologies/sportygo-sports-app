@@ -301,6 +301,8 @@ function CheckoutScreenContent() {
         // does not prevent booking after a successful payment.
         const reservation = await reserveSlotForBooking(
           {
+            sportId: state.selectedSport ?? 'cricket',
+            facilityCode: state.selectedFacility?.code ?? '',
             selectedDate: state.selectedDate,
             selectedTime: state.selectedTime,
             durationMins: state.durationMins,
@@ -400,6 +402,8 @@ function CheckoutScreenContent() {
     try {
       const reservation = await reserveSlotForBooking(
         {
+          sportId: state.selectedSport ?? 'cricket',
+          facilityCode: state.selectedFacility?.code ?? '',
           selectedDate: state.selectedDate,
           selectedTime: state.selectedTime,
           durationMins: state.durationMins,

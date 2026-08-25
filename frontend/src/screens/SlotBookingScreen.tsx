@@ -149,13 +149,13 @@ export default function SlotBookingScreen() {
   }, [state.selectedDate, dispatch, todayIso]);
 
   useEffect(() => {
-    if (!state.selectedDate) return;
+    if (!state.selectedDate || !state.selectedSport || !selectedFacility.code) return;
 
     dispatch({ type: 'SET_SLOTS_LOADING' });
-    fetchSlots(state.selectedDate)
+    fetchSlots(state.selectedDate, state.selectedSport, selectedFacility.code)
       .then((res) => dispatch({ type: 'SET_SLOTS', payload: res.slots }))
       .catch((err) => dispatch({ type: 'SET_SLOTS_ERROR', payload: err.message ?? 'Failed to load slots.' }));
-  }, [state.selectedDate, dispatch]);
+  }, [state.selectedDate, state.selectedSport, selectedFacility.code, dispatch]);
 
   useEffect(() => {
     if (!state.bookingType || state.priceSubtotal !== 0) {

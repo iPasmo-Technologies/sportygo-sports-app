@@ -1,4 +1,5 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
+import { CalendarX2, Menu } from 'lucide-react';
 import { useApp, useSelectBookingType } from '@/context/AppContext';
 import { announce } from '@/lib/utils';
 import ScreenHeader from '@/components/ScreenHeader';
@@ -51,10 +52,12 @@ function toSportTiles(sports: SportOption[]): SportTile[] {
 }
 
 export default function SportSelectScreen() {
-  const { navigate, dispatch } = useApp();
+  const { navigate, dispatch, state } = useApp();
   const selectType = useSelectBookingType();
   const fallbackSportTiles = toSportTiles(fallbackSports as SportOption[]);
   const [sports, setSports] = useState<SportTile[]>(() => fallbackSportTiles);
+  const [adminMenuOpen, setAdminMenuOpen] = useState(false);
+  const adminMenuRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
     let active = true;
@@ -78,6 +81,29 @@ export default function SportSelectScreen() {
     };
   }, []);
 
+  useEffect(() => {
+    if (!adminMenuOpen) return;
+
+    function closeAdminMenu(event: MouseEvent) {
+      if (!adminMenuRef.current?.contains(event.target as Node)) {
+        setAdminMenuOpen(false);
+      }
+    }
+
+    function handleEscape(event: KeyboardEvent) {
+      if (event.key === 'Escape') {
+        setAdminMenuOpen(false);
+      }
+    }
+
+    document.addEventListener('mousedown', closeAdminMenu);
+    document.addEventListener('keydown', handleEscape);
+    return () => {
+      document.removeEventListener('mousedown', closeAdminMenu);
+      document.removeEventListener('keydown', handleEscape);
+    };
+  }, [adminMenuOpen]);
+
   function handleSportSelect(sport: SportTile) {
     if (!sport.enabled) {
       return;
@@ -95,7 +121,51 @@ export default function SportSelectScreen() {
         className="sports-screen-shell"
         style={{ backgroundImage: `url(${selectSportBackground})` }}
       >
-        <ScreenHeader onBack={() => navigate('home')} backAriaLabel="Back to home" />
+        <ScreenHeader
+          onBack={() => navigate('home')}
+          backAriaLabel="Back to home"
+          rightSlot={state.userRole === 'admin' ? (
+            <div
+              className="admin-menu"
+              ref={adminMenuRef}
+              onMouseEnter={() => setAdminMenuOpen(true)}
+              onMouseLeave={() => setAdminMenuOpen(false)}
+              onFocusCapture={() => setAdminMenuOpen(true)}
+              onBlurCapture={(event) => {
+                if (!event.currentTarget.contains(event.relatedTarget)) {
+                  setAdminMenuOpen(false);
+                }
+              }}
+            >
+              <button
+                type="button"
+                className={`admin-menu-trigger${adminMenuOpen ? ' is-open' : ''}`}
+                onClick={() => setAdminMenuOpen(true)}
+                aria-label="Admin menu"
+                aria-expanded={adminMenuOpen}
+                aria-controls="admin-actions-menu"
+                title="Admin menu"
+              >
+                <Menu size={21} strokeWidth={2.3} aria-hidden="true" />
+              </button>
+              {adminMenuOpen ? (
+                <div className="admin-actions-menu" id="admin-actions-menu" role="menu" aria-label="Admin actions">
+                  <button
+                    type="button"
+                    role="menuitem"
+                    onClick={() => {
+                      setAdminMenuOpen(false);
+                      navigate('block-slots');
+                    }}
+                  >
+                    <CalendarX2 size={19} strokeWidth={2.2} aria-hidden="true" />
+                    <span>Block Slots</span>
+                  </button>
+                </div>
+              ) : null}
+            </div>
+          ) : undefined}
+        />
 
         <div className="sport-steps" aria-hidden="true">
           <span className="sport-step active" />
