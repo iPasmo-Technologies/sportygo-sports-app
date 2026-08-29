@@ -153,6 +153,25 @@ export type AdminSlotBlockResult = {
   reason: string;
 };
 
+export type AdminBlockRuleRow = {
+  id: string;
+  ruleType: 'one-time' | 'recurring';
+  sportId: SportRow['id'] | null;
+  facilityCode: string | null;
+  facilityTitle: string;
+  dates: string[];
+  validFrom: string | null;
+  validTo: string | null;
+  weekdays: string[];
+  startTime: string;
+  endTime: string;
+  reason: string;
+  source: 'admin' | 'system-seed' | 'legacy';
+  active: boolean;
+  editable: boolean;
+  createdAt: string;
+};
+
 export class SlotAlreadyBookedError extends Error {
   constructor(slotDate: string, slotTime: string) {
     super(`Slot ${slotDate} ${slotTime} is already booked.`);
@@ -222,54 +241,48 @@ type SystemConfigSeed = {
 };
 
 const DEFAULT_SYSTEM_CONFIGS: SystemConfigSeed[] = [
-  // ── RESERVATION ──────────────────────────────────────────────
   { configType: 'RESERVATION', configKey: 'SLOT_LOCK_DURATION_MINS',  configValue: '10',   valueType: 'INTEGER', description: 'Minutes a slot is held after reservation before auto-expiry' },
-  { configType: 'RESERVATION', configKey: 'MAX_LOCKS_PER_USER',       configValue: '1',    valueType: 'INTEGER', description: 'Maximum simultaneous active reservations per user' },
-
-  // ── PRICING ───────────────────────────────────────────────────
-  { configType: 'PRICING', configKey: 'PLATFORM_FEE_SGD',             configValue: '1.50', valueType: 'DECIMAL', description: 'Fixed platform fee per booking (SGD)' },
-  { configType: 'PRICING', configKey: 'STRIPE_FEE_RATE',              configValue: '0.035',valueType: 'DECIMAL', description: 'Stripe card processing fee rate (e.g. 0.035 = 3.5%)' },
-  { configType: 'PRICING', configKey: 'DEFAULT_COURT_RATE_PER_HOUR',  configValue: '28.00',valueType: 'DECIMAL', description: 'Fallback court rate per hour when facility price is unset (SGD)' },
-
-  // ── SLOTS ─────────────────────────────────────────────────────
-  { configType: 'SLOTS', configKey: 'SLOT_INTERVAL_MINS',             configValue: '30',   valueType: 'INTEGER', description: 'Duration of each bookable time slot in minutes' },
-  { configType: 'SLOTS', configKey: 'DEFAULT_WINDOW_START',           configValue: '08:00',valueType: 'STRING',  description: 'Default slot window opening time (HH:MM)' },
-  { configType: 'SLOTS', configKey: 'DEFAULT_WINDOW_END',             configValue: '22:00',valueType: 'STRING',  description: 'Default slot window closing time (HH:MM)' },
-
-  // ── BOOKING ───────────────────────────────────────────────────
-  { configType: 'BOOKING', configKey: 'MAX_ADVANCE_BOOKING_MONTHS',   configValue: '3',    valueType: 'INTEGER', description: 'How many months ahead a slot can be booked' },
-  { configType: 'BOOKING', configKey: 'MIN_DURATION_MINS',            configValue: '60',   valueType: 'INTEGER', description: 'Minimum allowed booking duration in minutes' },
-  { configType: 'BOOKING', configKey: 'CANCELLATION_WINDOW_HOURS',    configValue: '24',   valueType: 'INTEGER', description: 'Hours before start time within which cancellation earns a refund' },
-
-  // ── PAYMENTS ──────────────────────────────────────────────────
-  { configType: 'PAYMENTS', configKey: 'CURRENCY',                    configValue: 'sgd',  valueType: 'STRING',  description: 'ISO 4217 currency code for all payment processing' },
-  { configType: 'PAYMENTS', configKey: 'PAYMENT_SESSION_TIMEOUT_SECS',configValue: '300',  valueType: 'INTEGER', description: 'Seconds before an in-progress payment session expires' },
-  { configType: 'PAYMENTS', configKey: 'STRIPE_ENABLED',              configValue: 'true', valueType: 'BOOLEAN', description: 'Whether Stripe card payments are active' },
   { configType: 'PAYMENTS', configKey: 'PAYMENT_TEST_MODE_ENABLED',   configValue: 'true', valueType: 'BOOLEAN', description: 'Whether the developer-only custom-amount Stripe test endpoint is active' },
-  { configType: 'PAYMENTS', configKey: 'PAYNOW_ENABLED',              configValue: 'false',valueType: 'BOOLEAN', description: 'Whether PayNow payments are active' },
-  { configType: 'PAYMENTS', configKey: 'GRABPAY_ENABLED',             configValue: 'false',valueType: 'BOOLEAN', description: 'Whether GrabPay payments are active' },
-  { configType: 'PAYMENTS', configKey: 'GPAY_ENABLED',                configValue: 'false',valueType: 'BOOLEAN', description: 'Whether Google Pay payments are active' },
-
-  // ── NOTIFICATIONS ─────────────────────────────────────────────
-  { configType: 'NOTIFICATIONS', configKey: 'BOOKING_CONFIRMATION_ENABLED', configValue: 'true', valueType: 'BOOLEAN', description: 'Send booking confirmation email after successful payment' },
-  { configType: 'NOTIFICATIONS', configKey: 'REMINDER_HOURS_BEFORE',        configValue: '24',   valueType: 'INTEGER', description: 'Hours before booking to dispatch a reminder' },
-  { configType: 'NOTIFICATIONS', configKey: 'SUPPORT_EMAIL',                configValue: 'support@sportygo.sg', valueType: 'STRING', description: 'Customer-facing support email address' },
-
-  // ── APP ───────────────────────────────────────────────────────
-  { configType: 'APP', configKey: 'TIMEZONE',        configValue: 'Asia/Singapore', valueType: 'STRING', description: 'Primary application operating timezone' },
-  { configType: 'APP', configKey: 'APP_NAME',         configValue: 'SportyGo',       valueType: 'STRING', description: 'Application display name' },
-  { configType: 'APP', configKey: 'TERMS_VERSION',    configValue: '1.0',            valueType: 'STRING', description: 'Active terms and conditions version shown to users' },
 ];
 const WEEKDAY_NAMES = ['sunday', 'monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday'] as const;
 const DEFAULT_WEEKDAY_SLOT_WINDOWS: Record<(typeof WEEKDAY_NAMES)[number], { startTime: string; endTime: string }> = {
-  sunday: { startTime: '08:00', endTime: '22:00' },
-  monday: { startTime: '15:30', endTime: '22:00' },
-  tuesday: { startTime: '15:30', endTime: '22:00' },
-  wednesday: { startTime: '15:30', endTime: '22:00' },
-  thursday: { startTime: '15:30', endTime: '22:00' },
-  friday: { startTime: '15:30', endTime: '22:00' },
-  saturday: { startTime: '08:00', endTime: '22:00' },
+  sunday: { startTime: '08:00', endTime: '19:00' },
+  monday: { startTime: '16:00', endTime: '19:00' },
+  tuesday: { startTime: '16:00', endTime: '19:00' },
+  wednesday: { startTime: '16:00', endTime: '19:00' },
+  thursday: { startTime: '16:00', endTime: '19:00' },
+  friday: { startTime: '16:00', endTime: '19:00' },
+  saturday: { startTime: '08:00', endTime: '19:00' },
 };
+const EXCEPTION_FACILITIES_2026: Array<{ sportId: SportRow['id']; facilityCode: string }> = [
+  ...['bowling-lane', 'net-2', 'net-3', 'net-4', 'indoor-court', 'outdoor-field']
+    .map((facilityCode) => ({ sportId: 'cricket' as const, facilityCode })),
+  { sportId: 'pickleball', facilityCode: 'indoor-court' },
+  { sportId: 'pickleball', facilityCode: 'outdoor-field' },
+];
+
+type RecurringSlotBlockSeed = {
+  sportId: SportRow['id'];
+  facilityCode: string;
+  weekdayName: (typeof WEEKDAY_NAMES)[number];
+  startTime: string;
+  endTime: string;
+};
+
+const ACADEMY_BLOCKS_2026: RecurringSlotBlockSeed[] = [
+  { sportId: 'cricket', facilityCode: 'bowling-lane', weekdayName: 'saturday', startTime: '08:00', endTime: '10:00' },
+  { sportId: 'cricket', facilityCode: 'bowling-lane', weekdayName: 'saturday', startTime: '16:00', endTime: '18:00' },
+  ...['net-2', 'net-3', 'net-4'].flatMap((facilityCode) => [
+    { sportId: 'cricket' as const, facilityCode, weekdayName: 'wednesday' as const, startTime: '16:00', endTime: '18:00' },
+    { sportId: 'cricket' as const, facilityCode, weekdayName: 'friday' as const, startTime: '16:00', endTime: '18:00' },
+    { sportId: 'cricket' as const, facilityCode, weekdayName: 'saturday' as const, startTime: '08:00', endTime: '10:00' },
+    { sportId: 'cricket' as const, facilityCode, weekdayName: 'saturday' as const, startTime: '13:30', endTime: '18:00' },
+    { sportId: 'cricket' as const, facilityCode, weekdayName: 'sunday' as const, startTime: '08:00', endTime: '10:00' },
+    { sportId: 'cricket' as const, facilityCode, weekdayName: 'sunday' as const, startTime: '16:00', endTime: '18:00' },
+  ]),
+  { sportId: 'cricket', facilityCode: 'indoor-court', weekdayName: 'saturday', startTime: '16:00', endTime: '18:00' },
+];
+const ACADEMY_BLOCK_REASON = 'SGO Academy Sessions';
 
 let bootstrapPromise: Promise<void> | null = null;
 const fallbackUsers = new Map<string, UserAuthRow>();
@@ -321,6 +334,16 @@ function weekdayNameForDate(dateStr: string): (typeof WEEKDAY_NAMES)[number] {
   const [year, month, day] = dateStr.split('-').map(Number);
   const dayIndex = new Date(Date.UTC(year, month - 1, day)).getUTCDay();
   return WEEKDAY_NAMES[dayIndex];
+}
+
+function availabilityExceptionDates2026(): string[] {
+  const dates = ['2026-08-10', '2026-11-09'];
+  for (let day = 1; day <= 31; day++) {
+    const date = `2026-12-${String(day).padStart(2, '0')}`;
+    const weekdayName = weekdayNameForDate(date);
+    if (weekdayName !== 'saturday' && weekdayName !== 'sunday') dates.push(date);
+  }
+  return dates;
 }
 
 function generateDailySlots(dateStr: string, slotStartTime: string, slotEndTime: string): SlotRow[] {
@@ -520,6 +543,72 @@ async function seedSystemConfigs(client: PoolClient): Promise<void> {
        VALUES ($1, $2, $3, $4, $5, 'system', 'system')
        ON CONFLICT (config_type, config_key) DO NOTHING`,
       [cfg.configType, cfg.configKey, cfg.configValue, cfg.valueType, cfg.description]
+    );
+  }
+}
+
+async function seedFacilityWeekdayConfigurations(client: PoolClient, overwriteExisting: boolean): Promise<void> {
+  for (const facility of DEFAULT_SPORT_FACILITY_TEMPLATE_ROWS) {
+    for (const weekdayName of WEEKDAY_NAMES) {
+      const window = DEFAULT_WEEKDAY_SLOT_WINDOWS[weekdayName];
+      await client.query(
+        `INSERT INTO slot_weekday_configurations (
+           sport_id,
+           facility_code,
+           weekday_name,
+           slot_start_time,
+           slot_end_time,
+           created_by,
+           updated_by
+         ) VALUES ($1, $2, $3, $4::time, $5::time, 'seed', 'seed')
+         ON CONFLICT (sport_id, facility_code, weekday_name)
+         ${overwriteExisting ? `DO UPDATE SET
+           slot_start_time = EXCLUDED.slot_start_time,
+           slot_end_time = EXCLUDED.slot_end_time,
+           updated_at = NOW(),
+           updated_by = 'seed',
+           deleted_at = NULL` : 'DO NOTHING'}`,
+        [facility.sportId, facility.code, weekdayName, window.startTime, window.endTime]
+      );
+    }
+  }
+}
+
+async function seedAvailabilityExceptions2026(client: PoolClient, overwriteExisting: boolean): Promise<void> {
+  for (const facility of EXCEPTION_FACILITIES_2026) {
+    for (const exceptionDate of availabilityExceptionDates2026()) {
+      await client.query(
+        `INSERT INTO slot_availability_exceptions (
+           sport_id, facility_code, exception_date, slot_start_time, slot_end_time, created_by, updated_by
+         ) VALUES ($1, $2, $3::date, '08:00'::time, '19:00'::time, 'seed', 'seed')
+         ON CONFLICT (sport_id, facility_code, exception_date)
+         ${overwriteExisting ? `DO UPDATE SET
+           slot_start_time = EXCLUDED.slot_start_time,
+           slot_end_time = EXCLUDED.slot_end_time,
+           updated_at = NOW(),
+           updated_by = 'seed',
+           deleted_at = NULL` : 'DO NOTHING'}`,
+        [facility.sportId, facility.facilityCode, exceptionDate]
+      );
+    }
+  }
+}
+
+async function seedRecurringAcademyBlocks2026(client: PoolClient, overwriteExisting: boolean): Promise<void> {
+  for (const block of ACADEMY_BLOCKS_2026) {
+    await client.query(
+      `INSERT INTO slot_block_rules (
+         rule_type, sport_id, facility_code, valid_from, valid_to, weekday_name,
+         slot_start_time, slot_end_time, reason, created_by, updated_by
+       ) VALUES ('recurring', $1, $2, '2026-01-01'::date, '2026-12-31'::date, $3, $4::time, $5::time, $6, 'seed', 'seed')
+       ON CONFLICT (sport_id, facility_code, valid_from, valid_to, weekday_name, slot_start_time, slot_end_time)
+       WHERE rule_type = 'recurring'
+       ${overwriteExisting ? `DO UPDATE SET
+         reason = EXCLUDED.reason,
+         updated_at = NOW(),
+         updated_by = 'seed',
+         deleted_at = NULL` : 'DO NOTHING'}`,
+      [block.sportId, block.facilityCode, block.weekdayName, block.startTime, block.endTime, ACADEMY_BLOCK_REASON]
     );
   }
 }
@@ -851,6 +940,8 @@ async function ensureSchema(client: PoolClient): Promise<void> {
   await client.query(`
     CREATE TABLE IF NOT EXISTS slot_weekday_configurations (
       id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+      sport_id TEXT NOT NULL,
+      facility_code TEXT NOT NULL,
       weekday_name TEXT NOT NULL,
       slot_start_time TIME NOT NULL,
       slot_end_time TIME NOT NULL,
@@ -859,16 +950,136 @@ async function ensureSchema(client: PoolClient): Promise<void> {
       deleted_at TIMESTAMPTZ NULL,
       created_by TEXT NOT NULL DEFAULT 'system',
       updated_by TEXT NOT NULL DEFAULT 'system',
-      UNIQUE (weekday_name),
       CHECK (weekday_name IN ('sunday', 'monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday')),
       CHECK (slot_start_time < slot_end_time)
     )
   `);
 
+  await client.query('ALTER TABLE slot_weekday_configurations ADD COLUMN IF NOT EXISTS sport_id TEXT NULL');
+  await client.query('ALTER TABLE slot_weekday_configurations ADD COLUMN IF NOT EXISTS facility_code TEXT NULL');
+  await client.query('ALTER TABLE slot_weekday_configurations DROP CONSTRAINT IF EXISTS slot_weekday_configurations_weekday_name_key');
+  await client.query('DELETE FROM slot_weekday_configurations WHERE sport_id IS NULL OR facility_code IS NULL');
+  await client.query('ALTER TABLE slot_weekday_configurations ALTER COLUMN sport_id SET NOT NULL');
+  await client.query('ALTER TABLE slot_weekday_configurations ALTER COLUMN facility_code SET NOT NULL');
+  await client.query('DROP INDEX IF EXISTS idx_slot_weekday_configurations_name');
   await client.query(`
-    CREATE INDEX IF NOT EXISTS idx_slot_weekday_configurations_name
-    ON slot_weekday_configurations (weekday_name)
+    CREATE UNIQUE INDEX IF NOT EXISTS idx_slot_weekday_configurations_facility_day_unique
+    ON slot_weekday_configurations (sport_id, facility_code, weekday_name)
   `);
+  await seedFacilityWeekdayConfigurations(client, false);
+
+  await client.query(`
+    CREATE TABLE IF NOT EXISTS slot_availability_exceptions (
+      id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+      sport_id TEXT NOT NULL,
+      facility_code TEXT NOT NULL,
+      exception_date DATE NOT NULL,
+      slot_start_time TIME NOT NULL,
+      slot_end_time TIME NOT NULL,
+      created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+      updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+      deleted_at TIMESTAMPTZ NULL,
+      created_by TEXT NOT NULL DEFAULT 'system',
+      updated_by TEXT NOT NULL DEFAULT 'system',
+      CHECK (slot_start_time < slot_end_time)
+    )
+  `);
+  await client.query(`
+    CREATE UNIQUE INDEX IF NOT EXISTS idx_slot_availability_exceptions_facility_date
+    ON slot_availability_exceptions (sport_id, facility_code, exception_date)
+  `);
+
+  await client.query(`
+    CREATE TABLE IF NOT EXISTS slot_block_rules (
+      id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+      rule_type TEXT NOT NULL CHECK (rule_type IN ('one-time', 'recurring')),
+      admin_email TEXT NULL,
+      sport_id TEXT NULL,
+      facility_code TEXT NULL,
+      facility_title TEXT NULL,
+      selected_dates JSONB NULL,
+      valid_from DATE NULL,
+      valid_to DATE NULL,
+      weekday_name TEXT NULL,
+      slot_start_time TIME NOT NULL,
+      slot_end_time TIME NOT NULL,
+      reason TEXT NOT NULL,
+      blocked_slot_count INTEGER NOT NULL DEFAULT 0,
+      created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+      updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+      deleted_at TIMESTAMPTZ NULL,
+      created_by TEXT NOT NULL DEFAULT 'system',
+      updated_by TEXT NOT NULL DEFAULT 'system',
+      CHECK (slot_start_time < slot_end_time),
+      CHECK ((sport_id IS NULL) = (facility_code IS NULL)),
+      CHECK (
+        (rule_type = 'one-time'
+          AND admin_email IS NOT NULL
+          AND selected_dates IS NOT NULL AND jsonb_typeof(selected_dates) = 'array'
+          AND valid_from IS NULL AND valid_to IS NULL AND weekday_name IS NULL)
+        OR
+        (rule_type = 'recurring'
+          AND sport_id IS NOT NULL AND facility_code IS NOT NULL
+          AND selected_dates IS NULL
+          AND valid_from IS NOT NULL AND valid_to IS NOT NULL AND valid_from <= valid_to
+          AND weekday_name IN ('sunday', 'monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday'))
+      )
+    )
+  `);
+  await client.query(`
+    CREATE UNIQUE INDEX IF NOT EXISTS idx_slot_block_rules_recurring_unique
+    ON slot_block_rules (
+      sport_id, facility_code, valid_from, valid_to, weekday_name, slot_start_time, slot_end_time
+    )
+    WHERE rule_type = 'recurring'
+  `);
+  await client.query(`
+    CREATE INDEX IF NOT EXISTS idx_slot_block_rules_active_lookup
+    ON slot_block_rules (rule_type, sport_id, facility_code)
+    WHERE deleted_at IS NULL
+  `);
+
+  // Preserve existing rule IDs and audit history before retiring the two legacy tables.
+  await client.query(`
+    DO $migration$
+    BEGIN
+      IF to_regclass('public.slot_recurring_blocks') IS NOT NULL THEN
+        EXECUTE $sql$
+          INSERT INTO slot_block_rules (
+            id, rule_type, sport_id, facility_code, valid_from, valid_to, weekday_name,
+            slot_start_time, slot_end_time, reason, created_at, updated_at, deleted_at, created_by, updated_by
+          )
+          SELECT id, 'recurring', sport_id, facility_code, valid_from, valid_to, weekday_name,
+            slot_start_time, slot_end_time, reason, created_at, updated_at, deleted_at, created_by, updated_by
+          FROM slot_recurring_blocks
+          ON CONFLICT (id) DO NOTHING
+        $sql$;
+      END IF;
+
+      IF to_regclass('public.admin_slot_blocks') IS NOT NULL THEN
+        EXECUTE 'ALTER TABLE admin_slot_blocks ADD COLUMN IF NOT EXISTS sport_id TEXT NULL';
+        EXECUTE 'ALTER TABLE admin_slot_blocks ADD COLUMN IF NOT EXISTS facility_code TEXT NULL';
+        EXECUTE 'ALTER TABLE admin_slot_blocks ADD COLUMN IF NOT EXISTS facility_title TEXT NULL';
+        EXECUTE $sql$
+          INSERT INTO slot_block_rules (
+            id, rule_type, admin_email, sport_id, facility_code, facility_title, selected_dates,
+            slot_start_time, slot_end_time, reason, blocked_slot_count,
+            created_at, updated_at, deleted_at, created_by, updated_by
+          )
+          SELECT id, 'one-time', admin_email, sport_id, facility_code, facility_title, selected_dates,
+            slot_start_time, slot_end_time, reason, blocked_slot_count,
+            created_at, updated_at, deleted_at, created_by, updated_by
+          FROM admin_slot_blocks
+          ON CONFLICT (id) DO NOTHING
+        $sql$;
+      END IF;
+    END
+    $migration$
+  `);
+  await client.query('DROP TABLE IF EXISTS slot_recurring_blocks');
+  await client.query('DROP TABLE IF EXISTS admin_slot_blocks');
+  await seedAvailabilityExceptions2026(client, false);
+  await seedRecurringAcademyBlocks2026(client, false);
 
   await client.query(`
     CREATE INDEX IF NOT EXISTS idx_slots_slot_date_booked
@@ -966,32 +1177,6 @@ async function ensureSchema(client: PoolClient): Promise<void> {
   `);
 
   await client.query(`
-    CREATE TABLE IF NOT EXISTS admin_slot_blocks (
-      id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-      admin_email TEXT NOT NULL,
-      selected_dates JSONB NOT NULL,
-      slot_start_time TIME NOT NULL,
-      slot_end_time TIME NOT NULL,
-      reason TEXT NOT NULL,
-      blocked_slot_count INTEGER NOT NULL DEFAULT 0,
-      created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-      updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-      deleted_at TIMESTAMPTZ NULL,
-      created_by TEXT NOT NULL,
-      updated_by TEXT NOT NULL
-    )
-  `);
-  await client.query('ALTER TABLE admin_slot_blocks ADD COLUMN IF NOT EXISTS sport_id TEXT NULL');
-  await client.query('ALTER TABLE admin_slot_blocks ADD COLUMN IF NOT EXISTS facility_code TEXT NULL');
-  await client.query('ALTER TABLE admin_slot_blocks ADD COLUMN IF NOT EXISTS facility_title TEXT NULL');
-
-  await client.query(`
-    CREATE INDEX IF NOT EXISTS idx_admin_slot_blocks_created_at
-    ON admin_slot_blocks (created_at DESC)
-    WHERE deleted_at IS NULL
-  `);
-
-  await client.query(`
     CREATE TABLE IF NOT EXISTS system_configs (
       id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
       config_type TEXT NOT NULL,
@@ -1014,6 +1199,33 @@ async function ensureSchema(client: PoolClient): Promise<void> {
   await client.query(`
     CREATE INDEX IF NOT EXISTS idx_system_configs_type
     ON system_configs (config_type) WHERE deleted_at IS NULL AND is_active = TRUE
+  `);
+  await client.query(`
+    DELETE FROM system_configs
+    WHERE (config_type, config_key) IN (
+      ('RESERVATION', 'MAX_LOCKS_PER_USER'),
+      ('PRICING', 'PLATFORM_FEE_SGD'),
+      ('PRICING', 'STRIPE_FEE_RATE'),
+      ('PRICING', 'DEFAULT_COURT_RATE_PER_HOUR'),
+      ('SLOTS', 'SLOT_INTERVAL_MINS'),
+      ('SLOTS', 'DEFAULT_WINDOW_START'),
+      ('SLOTS', 'DEFAULT_WINDOW_END'),
+      ('BOOKING', 'MAX_ADVANCE_BOOKING_MONTHS'),
+      ('BOOKING', 'MIN_DURATION_MINS'),
+      ('BOOKING', 'CANCELLATION_WINDOW_HOURS'),
+      ('PAYMENTS', 'CURRENCY'),
+      ('PAYMENTS', 'PAYMENT_SESSION_TIMEOUT_SECS'),
+      ('PAYMENTS', 'STRIPE_ENABLED'),
+      ('PAYMENTS', 'PAYNOW_ENABLED'),
+      ('PAYMENTS', 'GRABPAY_ENABLED'),
+      ('PAYMENTS', 'GPAY_ENABLED'),
+      ('NOTIFICATIONS', 'BOOKING_CONFIRMATION_ENABLED'),
+      ('NOTIFICATIONS', 'REMINDER_HOURS_BEFORE'),
+      ('NOTIFICATIONS', 'SUPPORT_EMAIL'),
+      ('APP', 'TIMEZONE'),
+      ('APP', 'APP_NAME'),
+      ('APP', 'TERMS_VERSION')
+    )
   `);
 }
 
@@ -1236,11 +1448,24 @@ export async function ensureSlotsForDate(
   const configResult = await client.query<SlotWeekdayConfiguration>(
     `SELECT slot_start_time::text AS "slotStartTime",
             slot_end_time::text AS "slotEndTime"
-     FROM slot_weekday_configurations
-     WHERE weekday_name = $1
-       AND deleted_at IS NULL
+     FROM (
+       SELECT slot_start_time, slot_end_time, 0 AS priority
+       FROM slot_availability_exceptions
+       WHERE sport_id = $1
+         AND facility_code = $2
+         AND exception_date = $3::date
+         AND deleted_at IS NULL
+       UNION ALL
+       SELECT slot_start_time, slot_end_time, 1 AS priority
+       FROM slot_weekday_configurations
+       WHERE sport_id = $1
+         AND facility_code = $2
+         AND weekday_name = $4
+         AND deleted_at IS NULL
+     ) AS configured_window
+     ORDER BY priority
      LIMIT 1`,
-    [weekdayName]
+    [sportId, facilityCode, dateStr, weekdayName]
   );
 
   if (configResult.rowCount === 0) {
@@ -1303,23 +1528,52 @@ export async function ensureSlotsForDate(
     );
   }
 
-  // Blocks created before facility-scoped inventory were intentionally global.
   await client.query(
     `UPDATE slots s
      SET is_booked = TRUE,
          updated_at = NOW(),
-         updated_by = 'legacy-admin-block'
+         updated_by = 'recurring-block'
      WHERE s.sport_id = $1
        AND s.facility_code = $2
        AND s.slot_date = $3
        AND s.deleted_at IS NULL
+       AND s.is_booked = FALSE
        AND EXISTS (
          SELECT 1
-         FROM admin_slot_blocks block
-         WHERE block.sport_id IS NULL
-           AND block.facility_code IS NULL
+         FROM slot_block_rules block
+         WHERE block.sport_id = s.sport_id
+           AND block.facility_code = s.facility_code
+           AND block.rule_type = 'recurring'
+           AND s.slot_date BETWEEN block.valid_from AND block.valid_to
+           AND block.weekday_name = $4
            AND block.deleted_at IS NULL
+           AND s.slot_time >= block.slot_start_time
+           AND s.slot_time < block.slot_end_time
+       )`,
+    [sportId, facilityCode, dateStr, weekdayName]
+  );
+
+  // Replay manual blocks so slots added later by an expanded exception window remain unavailable.
+  await client.query(
+    `UPDATE slots s
+     SET is_booked = TRUE,
+         updated_at = NOW(),
+         updated_by = 'admin-block'
+     WHERE s.sport_id = $1
+       AND s.facility_code = $2
+       AND s.slot_date = $3
+       AND s.deleted_at IS NULL
+       AND s.is_booked = FALSE
+       AND EXISTS (
+         SELECT 1
+         FROM slot_block_rules block
+         WHERE block.deleted_at IS NULL
+           AND block.rule_type = 'one-time'
            AND block.selected_dates ? ($3::date)::text
+           AND (
+             (block.sport_id = s.sport_id AND block.facility_code = s.facility_code)
+             OR (block.sport_id IS NULL AND block.facility_code IS NULL)
+           )
            AND s.slot_time >= block.slot_start_time
            AND s.slot_time < block.slot_end_time
        )`,
@@ -1432,11 +1686,11 @@ export async function blockSlotsForAdmin(input: {
       }
 
       const blockResult = await client.query<{ id: string }>(
-        `INSERT INTO admin_slot_blocks (
-           admin_email, sport_id, facility_code, facility_title,
+        `INSERT INTO slot_block_rules (
+           rule_type, admin_email, sport_id, facility_code, facility_title,
            selected_dates, slot_start_time, slot_end_time, reason,
            blocked_slot_count, created_by, updated_by
-         ) VALUES ($1, $2, $3, $4, $5::jsonb, $6::time, $7::time, $8, $9, $1, $1)
+         ) VALUES ('one-time', $1, $2, $3, $4, $5::jsonb, $6::time, $7::time, $8, $9, $1, $1)
          RETURNING id`,
         [adminEmail, input.sportId, input.facilityCode, facilityTitle, JSON.stringify(dates), input.startTime, input.endTime, reason, blockedCount]
       );
@@ -1457,6 +1711,141 @@ export async function blockSlotsForAdmin(input: {
       await client.query('ROLLBACK');
       throw error;
     }
+  });
+}
+
+export async function listAdminBlockRules(): Promise<AdminBlockRuleRow[]> {
+  const rules = await query<{
+    id: string; rule_type: 'one-time' | 'recurring'; sport_id: SportRow['id'] | null;
+    facility_code: string | null; facility_title: string | null; selected_dates: string[] | null;
+    valid_from: string | null; valid_to: string | null; weekday_name: string | null;
+    slot_start_time: string; slot_end_time: string; reason: string; created_by: string;
+    deleted_at: string | null; created_at: string;
+  }>(
+    `SELECT block.id, block.rule_type, block.sport_id, block.facility_code,
+        COALESCE(facility.title, block.facility_title) AS facility_title,
+        block.selected_dates, block.valid_from::text, block.valid_to::text, block.weekday_name,
+        block.slot_start_time::text, block.slot_end_time::text, block.reason,
+        block.created_by, block.deleted_at::text, block.created_at::text
+     FROM slot_block_rules block
+     LEFT JOIN sport_facilities facility
+       ON facility.sport_id = block.sport_id AND facility.facility_code = block.facility_code
+     ORDER BY block.deleted_at NULLS FIRST, block.created_at DESC`
+  );
+
+  return rules.map((rule): AdminBlockRuleRow => rule.rule_type === 'recurring' ? ({
+      id: rule.id,
+      ruleType: 'recurring',
+      sportId: rule.sport_id,
+      facilityCode: rule.facility_code,
+      facilityTitle: rule.facility_title ?? rule.facility_code ?? 'Unknown facility',
+      dates: [],
+      validFrom: rule.valid_from,
+      validTo: rule.valid_to,
+      weekdays: rule.weekday_name ? [rule.weekday_name] : [],
+      startTime: rule.slot_start_time.slice(0, 5),
+      endTime: rule.slot_end_time.slice(0, 5),
+      reason: rule.reason,
+      source: rule.created_by === 'seed' ? 'system-seed' : 'admin',
+      active: rule.deleted_at === null,
+      editable: true,
+      createdAt: rule.created_at,
+    }) : ({
+      id: rule.id,
+      ruleType: 'one-time',
+      sportId: rule.sport_id,
+      facilityCode: rule.facility_code,
+      facilityTitle: rule.facility_title ?? 'All legacy facilities',
+      dates: rule.selected_dates ?? [],
+      validFrom: null,
+      validTo: null,
+      weekdays: [],
+      startTime: rule.slot_start_time.slice(0, 5),
+      endTime: rule.slot_end_time.slice(0, 5),
+      reason: rule.reason,
+      source: rule.sport_id && rule.facility_code ? 'admin' : 'legacy',
+      active: rule.deleted_at === null,
+      editable: false,
+      createdAt: rule.created_at,
+    }));
+}
+
+export async function createRecurringBlockRules(input: {
+  adminEmail: string;
+  sportId: SportRow['id'];
+  facilityCode: string;
+  validFrom: string;
+  validTo: string;
+  weekdays: Array<(typeof WEEKDAY_NAMES)[number]>;
+  startTime: string;
+  endTime: string;
+  reason: string;
+}): Promise<void> {
+  await withDatabaseClient(async (client) => {
+    for (const weekdayName of [...new Set(input.weekdays)]) {
+      await client.query(
+        `INSERT INTO slot_block_rules (
+          rule_type, sport_id, facility_code, valid_from, valid_to, weekday_name,
+          slot_start_time, slot_end_time, reason, created_by, updated_by
+        ) VALUES ('recurring', $1, $2, $3::date, $4::date, $5, $6::time, $7::time, $8, $9, $9)
+        ON CONFLICT (sport_id, facility_code, valid_from, valid_to, weekday_name, slot_start_time, slot_end_time)
+        WHERE rule_type = 'recurring'
+        DO UPDATE SET reason = EXCLUDED.reason, updated_at = NOW(), updated_by = EXCLUDED.updated_by, deleted_at = NULL`,
+        [input.sportId, input.facilityCode, input.validFrom, input.validTo, weekdayName,
+          input.startTime, input.endTime, input.reason, input.adminEmail]
+      );
+    }
+  });
+}
+
+export async function updateRecurringBlockRule(input: {
+  id: string;
+  adminEmail: string;
+  validFrom: string;
+  validTo: string;
+  weekday: (typeof WEEKDAY_NAMES)[number];
+  startTime: string;
+  endTime: string;
+  reason: string;
+}): Promise<boolean> {
+  return withDatabaseClient(async (client) => {
+    const rows = await client.query<{ id: string; sport_id: SportRow['id']; facility_code: string }>(
+      `UPDATE slot_block_rules
+       SET valid_from = $2::date, valid_to = $3::date, weekday_name = $4,
+           slot_start_time = $5::time, slot_end_time = $6::time, reason = $7,
+           updated_at = NOW(), updated_by = $8
+      WHERE id = $1 AND rule_type = 'recurring' AND deleted_at IS NULL
+       RETURNING id, sport_id, facility_code`,
+      [input.id, input.validFrom, input.validTo, input.weekday, input.startTime, input.endTime, input.reason, input.adminEmail]
+    );
+    const rule = rows.rows[0];
+    if (!rule) return false;
+    await client.query(
+      `UPDATE slots SET is_booked = FALSE, updated_at = NOW(), updated_by = 'system'
+       WHERE sport_id = $1 AND facility_code = $2 AND updated_by = 'recurring-block'`,
+      [rule.sport_id, rule.facility_code]
+    );
+    return true;
+  });
+}
+
+export async function deactivateRecurringBlockRule(id: string, adminEmail: string): Promise<boolean> {
+  return withDatabaseClient(async (client) => {
+    const rows = await client.query<{ id: string; sport_id: SportRow['id']; facility_code: string }>(
+      `UPDATE slot_block_rules
+       SET deleted_at = NOW(), updated_at = NOW(), updated_by = $2
+       WHERE id = $1 AND rule_type = 'recurring' AND deleted_at IS NULL
+       RETURNING id, sport_id, facility_code`,
+      [id, adminEmail]
+    );
+    const rule = rows.rows[0];
+    if (!rule) return false;
+    await client.query(
+      `UPDATE slots SET is_booked = FALSE, updated_at = NOW(), updated_by = 'system'
+       WHERE sport_id = $1 AND facility_code = $2 AND updated_by = 'recurring-block'`,
+      [rule.sport_id, rule.facility_code]
+    );
+    return true;
   });
 }
 
@@ -1999,27 +2388,11 @@ export async function seedDatabase(): Promise<void> {
       await seedSportEvents(client);
       await seedSportFacilities(client);
       await seedSystemConfigs(client);
-
-      for (const weekdayName of WEEKDAY_NAMES) {
-        const window = DEFAULT_WEEKDAY_SLOT_WINDOWS[weekdayName];
-        await client.query(
-          `INSERT INTO slot_weekday_configurations (
-             weekday_name,
-             slot_start_time,
-             slot_end_time,
-             created_by,
-             updated_by
-           ) VALUES ($1, $2::time, $3::time, 'seed', 'seed')
-           ON CONFLICT (weekday_name)
-           DO UPDATE SET
-             slot_start_time = EXCLUDED.slot_start_time,
-             slot_end_time = EXCLUDED.slot_end_time,
-             updated_at = NOW(),
-             updated_by = 'seed',
-             deleted_at = NULL`,
-          [weekdayName, window.startTime, window.endTime]
-        );
-      }
+      await seedFacilityWeekdayConfigurations(client, true);
+      await client.query("DELETE FROM slot_availability_exceptions WHERE created_by = 'seed'");
+      await client.query("DELETE FROM slot_block_rules WHERE rule_type = 'recurring' AND created_by = 'seed'");
+      await seedAvailabilityExceptions2026(client, true);
+      await seedRecurringAcademyBlocks2026(client, true);
 
       await client.query('COMMIT');
     } catch (error) {
@@ -2038,7 +2411,7 @@ export async function resetDatabaseAndSeed(): Promise<void> {
     await client.query('BEGIN');
     try {
       await ensureSchema(client);
-      await client.query('TRUNCATE TABLE bookings, slots, users, packages, sports, sport_events, sport_facilities, slot_weekday_configurations RESTART IDENTITY CASCADE');
+      await client.query('TRUNCATE TABLE bookings, slots, users, packages, sports, sport_events, sport_facilities, slot_weekday_configurations, slot_availability_exceptions, slot_block_rules RESTART IDENTITY CASCADE');
       await client.query('COMMIT');
     } catch (error) {
       await client.query('ROLLBACK');
