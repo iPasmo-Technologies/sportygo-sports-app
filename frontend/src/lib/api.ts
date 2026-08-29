@@ -1,6 +1,9 @@
 import type {
   AdminSlotBlockPayload,
   AdminSlotBlockResponse,
+  AdminBlockRulesResponse,
+  AdminRecurringBlockPayload,
+  AdminBlockWeekday,
   BookingHistoryResponse,
   BookingPayload,
   BookingResponse,
@@ -91,18 +94,46 @@ function isPastOrCurrentSlot(date: string, time: string, reference: SingaporeDat
   return date === reference.date && toMinutes(time) <= toMinutes(reference.time);
 }
 
+function hasAvailabilityException2026(date: string, sportId: SportId, facilityCode: string, dayOfWeek: number): boolean {
+  const isConfiguredFacility = sportId === 'cricket'
+    ? ['bowling-lane', 'net-2', 'net-3', 'net-4', 'indoor-court', 'outdoor-field'].includes(facilityCode)
+    : sportId === 'pickleball' && ['indoor-court', 'outdoor-field'].includes(facilityCode);
+  if (!isConfiguredFacility) return false;
+  if (date === '2026-08-10' || date === '2026-11-09') return true;
+  return date >= '2026-12-01' && date <= '2026-12-31' && dayOfWeek >= 1 && dayOfWeek <= 5;
+}
+
+function isAcademyBlocked2026(date: string, sportId: SportId, facilityCode: string, time: string, dayOfWeek: number): boolean {
+  if (sportId !== 'cricket' || date < '2026-01-01' || date > '2026-12-31') return false;
+  const minutes = toMinutes(time);
+  const inRange = (start: string, end: string) => minutes >= toMinutes(start) && minutes < toMinutes(end);
+
+  if (facilityCode === 'bowling-lane' && dayOfWeek === 6) {
+    return inRange('08:00', '10:00') || inRange('16:00', '18:00');
+  }
+  if (['net-2', 'net-3', 'net-4'].includes(facilityCode)) {
+    if (dayOfWeek === 3 || dayOfWeek === 5) return inRange('16:00', '18:00');
+    if (dayOfWeek === 6) return inRange('08:00', '10:00') || inRange('13:30', '18:00');
+    if (dayOfWeek === 0) return inRange('08:00', '10:00') || inRange('16:00', '18:00');
+  }
+  return facilityCode === 'indoor-court' && dayOfWeek === 6 && inRange('16:00', '18:00');
+}
+
 function buildLocalSlots(date: string, sportId: SportId, facilityCode: string): SlotsResponse {
   const slots: SlotsResponse['slots'] = [];
   const currentDateTime = currentSingaporeDateTimeParts();
+  const dayOfWeek = new Date(`${date}T00:00:00Z`).getUTCDay();
+  const startHour = dayOfWeek === 0 || dayOfWeek === 6 || hasAvailabilityException2026(date, sportId, facilityCode, dayOfWeek) ? 8 : 16;
 
-  for (let h = 8; h < 22; h++) {
+  for (let h = startHour; h < 19; h++) {
     for (let m = 0; m < 60; m += 30) {
       const time = `${String(h).padStart(2, '0')}:${String(m).padStart(2, '0')}`;
       const past = isPastOrCurrentSlot(date, time, currentDateTime);
       slots.push({
         time,
         key: `${sportId}_${facilityCode}_${date}_${time}`,
-        booked: isPreBooked(sportId, facilityCode, date, time),
+        booked: isAcademyBlocked2026(date, sportId, facilityCode, time, dayOfWeek)
+          || isPreBooked(sportId, facilityCode, date, time),
         past,
       });
     }
@@ -272,6 +303,42 @@ export async function blockSlotsForAdmin(
     method: 'POST',
     headers: { Authorization: `Bearer ${token}` },
     body: JSON.stringify(payload),
+  });
+}
+
+export async function fetchAdminBlockRules(token: string): Promise<AdminBlockRulesResponse> {
+  return request<AdminBlockRulesResponse>('/api/slots/blocks', {
+    headers: { Authorization: `Bearer ${token}` },
+  });
+}
+
+export async function createAdminRecurringBlocks(
+  payload: AdminRecurringBlockPayload,
+  token: string
+): Promise<AdminBlockRulesResponse> {
+  return request<AdminBlockRulesResponse>('/api/slots/blocks/recurring', {
+    method: 'POST',
+    headers: { Authorization: `Bearer ${token}` },
+    body: JSON.stringify(payload),
+  });
+}
+
+export async function updateAdminRecurringBlock(
+  id: string,
+  payload: Omit<AdminRecurringBlockPayload, 'sportId' | 'facilityCode' | 'weekdays'> & { weekday: AdminBlockWeekday },
+  token: string
+): Promise<AdminBlockRulesResponse> {
+  return request<AdminBlockRulesResponse>(`/api/slots/blocks/recurring/${encodeURIComponent(id)}`, {
+    method: 'PUT',
+    headers: { Authorization: `Bearer ${token}` },
+    body: JSON.stringify(payload),
+  });
+}
+
+export async function deactivateAdminRecurringBlock(id: string, token: string): Promise<AdminBlockRulesResponse> {
+  return request<AdminBlockRulesResponse>(`/api/slots/blocks/recurring/${encodeURIComponent(id)}`, {
+    method: 'DELETE',
+    headers: { Authorization: `Bearer ${token}` },
   });
 }
 

@@ -234,6 +234,42 @@ export interface AdminSlotBlockResponse extends AdminSlotBlockPayload {
   blockedCount: number;
 }
 
+export type AdminBlockWeekday = 'sunday' | 'monday' | 'tuesday' | 'wednesday' | 'thursday' | 'friday' | 'saturday';
+
+export interface AdminBlockRule {
+  id: string;
+  ruleType: 'one-time' | 'recurring';
+  sportId: SportId | null;
+  facilityCode: string | null;
+  facilityTitle: string;
+  dates: string[];
+  validFrom: string | null;
+  validTo: string | null;
+  weekdays: AdminBlockWeekday[];
+  startTime: string;
+  endTime: string;
+  reason: string;
+  source: 'admin' | 'system-seed' | 'legacy';
+  active: boolean;
+  editable: boolean;
+  createdAt: string;
+}
+
+export interface AdminRecurringBlockPayload {
+  sportId: SportId;
+  facilityCode: string;
+  validFrom: string;
+  validTo: string;
+  weekdays: AdminBlockWeekday[];
+  startTime: string;
+  endTime: string;
+  reason: string;
+}
+
+export interface AdminBlockRulesResponse {
+  rules: AdminBlockRule[];
+}
+
 export interface SportsResponse {
   sports: SportOption[];
 }

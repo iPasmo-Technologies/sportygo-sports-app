@@ -98,7 +98,11 @@ Seed now creates:
 - sports catalog rows for `GET /api/sports`
 - sport event cards for `GET /api/sports/:sportId/events`
 - sport facility cards for `GET /api/sports/:sportId/facilities`
-- weekday slot configuration rows (`slot_weekday_configurations`)
+- sport/facility weekday slot configuration rows (`slot_weekday_configurations`)
+- exact-date 2026 availability overrides (`slot_availability_exceptions`)
+- unified one-time and recurring block rules, including 2026 SGO Academy block-outs (`slot_block_rules`)
+
+Slot windows are resolved from an exact-date availability exception first, then the facility weekday configuration. Unified one-time and recurring block rules, bookings, reservations, and past-slot rules remain unavailable within the resolved window. Existing `admin_slot_blocks` and `slot_recurring_blocks` records are migrated automatically into `slot_block_rules` during schema migration.
 
 ### Step 4: Validate health
 
@@ -154,7 +158,12 @@ Base path: `/api`
 - `GET /health` - service health with DB configured flag
 - `POST /auth/login` - email/password login
 - `POST /auth/google` - Google login token verification
-- `GET /slots?date=YYYY-MM-DD` - slot availability
+- `GET /slots?date=YYYY-MM-DD&sportId=<sport-id>&facilityCode=<facility-code>` - facility slot availability
+- `POST /slots/block` - create an admin one-time facility block
+- `GET /slots/blocks` - list one-time, recurring, seeded Academy, and legacy block rules (admin required)
+- `POST /slots/blocks/recurring` - create recurring facility block rules (admin required)
+- `PUT /slots/blocks/recurring/:id` - edit a recurring or seeded Academy rule (admin required)
+- `DELETE /slots/blocks/recurring/:id` - deactivate a recurring or seeded Academy rule (admin required)
 - `GET /bookings` - fetch current user booking history (auth required)
 - `POST /bookings` - create booking (auth required)
 - `GET /packages` - package list
