@@ -53,7 +53,7 @@ app.use(cors({
   origin: (origin, callback) => {
     callback(null, !origin || allowedOrigins.includes(origin));
   },
-  methods: ['GET', 'POST'],
+  methods: ['GET', 'POST', 'PUT', 'DELETE'],
   allowedHeaders: ['Content-Type', 'Authorization'],
 }));
 app.use(express.json({ limit: '50kb' }));
