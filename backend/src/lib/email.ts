@@ -34,6 +34,14 @@ export type BookingConfirmationEmail = {
   amount: number;
 };
 
+export type BookingUpdateEmail = {
+  email: string;
+  receiptId: string;
+  action: 'cancelled' | 'rescheduled';
+  slotDate?: string;
+  slotTime?: string;
+};
+
 export type WelcomeEmail = {
   email: string;
   fullName: string;
@@ -216,6 +224,36 @@ export async function sendBookingConfirmationEmail(input: BookingConfirmationEma
     auth: { user: SMTP_USER, pass: SMTP_PASS },
   });
 
+  await transporter.sendMail({ from: SMTP_FROM, to: input.email, subject, text, html });
+}
+
+export async function sendBookingUpdateEmail(input: BookingUpdateEmail): Promise<void> {
+  if (!hasSmtpConfig()) {
+    console.warn('[booking:update] SMTP not configured; email not sent.', input.email);
+    return;
+  }
+
+  const isCancelled = input.action === 'cancelled';
+  const heading = isCancelled ? 'Booking Cancelled' : 'Booking Rescheduled';
+  const subject = `SportyGo booking ${input.receiptId} ${input.action}`;
+  const detail = isCancelled
+    ? 'Your reserved slot has been released. Card refunds are not automatic; contact support if refund assistance is required.'
+    : `Your booking is now scheduled for ${input.slotDate} at ${input.slotTime}.`;
+  const text = [heading, `Booking ID: ${input.receiptId}`, detail].join('\n');
+  const html = `
+    <div style="font-family:Arial,sans-serif;background:#051328;color:#edf1f7;padding:24px;max-width:560px;border-radius:16px;">
+      <p style="margin:0 0 8px;font-size:20px;">${SPORTYGO_BRAND_HTML}</p>
+      <h1 style="margin:0 0 16px;font-size:26px;">${heading}</h1>
+      <p><strong>Booking ID</strong><br>${escapeHtml(input.receiptId)}</p>
+      <p style="color:#c6cfdd;line-height:1.6;">${escapeHtml(detail)}</p>
+    </div>`;
+
+  const transporter = nodemailer.createTransport({
+    host: SMTP_HOST,
+    port: SMTP_PORT,
+    secure: SMTP_PORT === 465,
+    auth: { user: SMTP_USER, pass: SMTP_PASS },
+  });
   await transporter.sendMail({ from: SMTP_FROM, to: input.email, subject, text, html });
 }
 

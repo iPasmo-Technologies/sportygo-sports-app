@@ -8,8 +8,13 @@ Project_Costing_Estimate.csv
 
 # Local environment secrets
 backend/.env
+backend/ - Copy.env
 
 frontend/.env.local
+
+# IntelliJ IDEA project files
+.idea/
+*.iml
 
 # Wrangler local cache (Cloudflare account info, auto-regenerated)
 .wrangler/

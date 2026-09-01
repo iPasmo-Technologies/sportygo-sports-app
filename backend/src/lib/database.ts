@@ -79,11 +79,13 @@ type SlotWeekdayConfiguration = {
 export type BookingHistoryRow = {
   receiptId: string;
   bookingType: 'court' | 'coaching';
+  sportId: SportRow['id'];
+  facilityCode: string;
   slotDate: string;
   slotTime: string;
   durationMins: number;
   grandTotal: number;
-  status: 'confirmed' | 'cash_pending';
+  status: 'confirmed' | 'cash_pending' | 'cancelled';
   payMethod: 'STRIPE' | 'GPAY' | 'PAYNOW' | 'GRABPAY';
   paymentMethod: 'ONLINE' | 'CASH';
   facilityTitle: string | null;
@@ -1104,7 +1106,7 @@ async function ensureSchema(client: PoolClient): Promise<void> {
       facility_address TEXT NULL,
       facility_image_key TEXT NULL,
       facility_tag TEXT NULL,
-      status TEXT NOT NULL CHECK (status IN ('confirmed', 'cash_pending')),
+      status TEXT NOT NULL CHECK (status IN ('confirmed', 'cash_pending', 'cancelled')),
       payment_method TEXT NOT NULL CHECK (payment_method IN ('ONLINE', 'CASH')),
       created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
       updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
@@ -1130,6 +1132,11 @@ async function ensureSchema(client: PoolClient): Promise<void> {
   await client.query('ALTER TABLE bookings ADD COLUMN IF NOT EXISTS facility_tag TEXT NULL');
   await client.query('ALTER TABLE bookings ADD COLUMN IF NOT EXISTS sport_id TEXT NULL');
   await client.query('ALTER TABLE bookings ADD COLUMN IF NOT EXISTS facility_code TEXT NULL');
+  await client.query('ALTER TABLE bookings DROP CONSTRAINT IF EXISTS bookings_status_check');
+  await client.query(`
+    ALTER TABLE bookings
+    ADD CONSTRAINT bookings_status_check CHECK (status IN ('confirmed', 'cash_pending', 'cancelled'))
+  `);
 
   await client.query(`
     UPDATE bookings AS booking
@@ -1494,6 +1501,7 @@ export async function ensureSlotsForDate(
            AND b.sport_id = s.sport_id
            AND b.facility_code = s.facility_code
            AND b.deleted_at IS NULL
+           AND b.status IN ('confirmed', 'cash_pending')
            AND s.slot_time >= b.slot_time
            AND s.slot_time < (b.slot_time + make_interval(mins => b.duration_mins))
        )`,
@@ -1603,6 +1611,7 @@ export async function listSlotsForDate(
                     AND b.sport_id = s.sport_id
                     AND b.facility_code = s.facility_code
                     AND b.deleted_at IS NULL
+                    AND b.status IN ('confirmed', 'cash_pending')
                     AND s.slot_time >= b.slot_time
                     AND s.slot_time < (b.slot_time + make_interval(mins => b.duration_mins))
                 ) OR EXISTS (
@@ -1925,6 +1934,7 @@ export async function saveBooking(input: BookingInput): Promise<void> {
              AND b.sport_id = $4
              AND b.facility_code = $5
              AND b.deleted_at IS NULL
+             AND b.status IN ('confirmed', 'cash_pending')
              AND $2::time < (b.slot_time + make_interval(mins => b.duration_mins))
              AND b.slot_time < ($2::time + make_interval(mins => $3))
          ) AS overlaps`,
@@ -2032,6 +2042,8 @@ export async function listBookingsByCustomer(customerEmail: string): Promise<Boo
     `SELECT
        receipt_id AS "receiptId",
        booking_type AS "bookingType",
+      booking.sport_id AS "sportId",
+      booking.facility_code AS "facilityCode",
        slot_date::text AS "slotDate",
        slot_time::text AS "slotTime",
        duration_mins AS "durationMins",
@@ -2054,6 +2066,209 @@ export async function listBookingsByCustomer(customerEmail: string): Promise<Boo
      ORDER BY booking.slot_date DESC, booking.slot_time DESC`,
     [normalizedCustomerEmail]
   );
+}
+
+type ManagedBookingRow = {
+  id: string;
+  sport_id: SportRow['id'];
+  facility_code: string;
+  slot_date: string;
+  slot_time: string;
+  duration_mins: number;
+  status: BookingHistoryRow['status'];
+};
+
+async function synchronizeSlotBookingState(
+  client: PoolClient,
+  slotDate: string,
+  sportId: SportRow['id'],
+  facilityCode: string
+): Promise<void> {
+  const weekdayName = weekdayNameForDate(slotDate);
+  await client.query(
+    `UPDATE slots s
+     SET is_booked = (
+       EXISTS (
+         SELECT 1 FROM bookings b
+         WHERE b.slot_date = s.slot_date
+           AND b.sport_id = s.sport_id
+           AND b.facility_code = s.facility_code
+           AND b.deleted_at IS NULL
+           AND b.status IN ('confirmed', 'cash_pending')
+           AND s.slot_time >= b.slot_time
+           AND s.slot_time < (b.slot_time + make_interval(mins => b.duration_mins))
+       ) OR EXISTS (
+         SELECT 1 FROM slot_block_rules block
+         WHERE block.sport_id = s.sport_id
+           AND block.facility_code = s.facility_code
+           AND block.rule_type = 'recurring'
+           AND s.slot_date BETWEEN block.valid_from AND block.valid_to
+           AND block.weekday_name = $4
+           AND block.deleted_at IS NULL
+           AND s.slot_time >= block.slot_start_time
+           AND s.slot_time < block.slot_end_time
+       ) OR EXISTS (
+         SELECT 1 FROM slot_block_rules block
+         WHERE block.deleted_at IS NULL
+           AND block.rule_type = 'one-time'
+           AND block.selected_dates ? (s.slot_date)::text
+           AND ((block.sport_id = s.sport_id AND block.facility_code = s.facility_code)
+             OR (block.sport_id IS NULL AND block.facility_code IS NULL))
+           AND s.slot_time >= block.slot_start_time
+           AND s.slot_time < block.slot_end_time
+       )
+     ), updated_at = NOW(), updated_by = 'booking-lifecycle'
+     WHERE s.slot_date = $1
+       AND s.sport_id = $2
+       AND s.facility_code = $3
+       AND s.deleted_at IS NULL`,
+    [slotDate, sportId, facilityCode, weekdayName]
+  );
+}
+
+async function lockManagedBooking(client: PoolClient, receiptId: string, customerEmail: string): Promise<ManagedBookingRow | null> {
+  const result = await client.query<ManagedBookingRow>(
+    `SELECT id, sport_id, facility_code, slot_date::text, slot_time::text, duration_mins, status
+     FROM bookings
+     WHERE receipt_id = $1
+       AND LOWER(BTRIM(customer_email)) = $2
+       AND deleted_at IS NULL
+     FOR UPDATE`,
+    [receiptId, customerEmail.trim().toLowerCase()]
+  );
+  return result.rows[0] ?? null;
+}
+
+export class BookingNotManageableError extends Error {}
+
+export async function cancelBooking(receiptId: string, customerEmail: string): Promise<BookingHistoryRow['status'] | null> {
+  if (!pool) throw new Error('DATABASE_URL is not configured.');
+  return withDatabaseClient(async (client) => {
+    await client.query('BEGIN');
+    try {
+      const booking = await lockManagedBooking(client, receiptId, customerEmail);
+      if (!booking) {
+        await client.query('ROLLBACK');
+        return null;
+      }
+      if (booking.status === 'cancelled') {
+        await client.query('COMMIT');
+        return 'cancelled';
+      }
+      if (isPastOrCurrentSlot(booking.slot_date, booking.slot_time, currentSingaporeDateTimeParts())) {
+        throw new BookingNotManageableError('Past or already-started bookings cannot be cancelled.');
+      }
+      await client.query(
+        `UPDATE bookings SET status = 'cancelled', updated_at = NOW(), updated_by = $2 WHERE id = $1`,
+        [booking.id, customerEmail.trim().toLowerCase()]
+      );
+      await synchronizeSlotBookingState(client, booking.slot_date, booking.sport_id, booking.facility_code);
+      await client.query('COMMIT');
+      return 'cancelled';
+    } catch (error) {
+      await client.query('ROLLBACK');
+      throw error;
+    }
+  });
+}
+
+export async function rescheduleBooking(
+  receiptId: string,
+  customerEmail: string,
+  selectedDate: string,
+  selectedTime: string
+): Promise<boolean | null> {
+  if (!pool) throw new Error('DATABASE_URL is not configured.');
+  return withDatabaseClient(async (client) => {
+    await client.query('BEGIN');
+    try {
+      const booking = await lockManagedBooking(client, receiptId, customerEmail);
+      if (!booking) {
+        await client.query('ROLLBACK');
+        return null;
+      }
+      if (booking.status === 'cancelled' || isPastOrCurrentSlot(booking.slot_date, booking.slot_time, currentSingaporeDateTimeParts())) {
+        throw new BookingNotManageableError('Only active future bookings can be rescheduled.');
+      }
+      if (isPastOrCurrentSlot(selectedDate, selectedTime, currentSingaporeDateTimeParts())) {
+        throw new BookingNotManageableError('Select a future time for the booking.');
+      }
+
+      const facility = await client.query(
+        `SELECT 1 FROM sport_facilities
+         WHERE sport_id = $1 AND facility_code = $2 AND enabled = TRUE AND deleted_at IS NULL`,
+        [booking.sport_id, booking.facility_code]
+      );
+      if (facility.rowCount === 0) throw new FacilityUnavailableError();
+
+      await ensureSlotsForDate(client, selectedDate, booking.sport_id, booking.facility_code);
+      const requiredSegments = Math.max(1, Math.ceil(booking.duration_mins / SLOT_INTERVAL_MINUTES));
+      const targetSlots = await client.query<{ id: string; slot_time: string }>(
+        `SELECT id, slot_time::text FROM slots
+         WHERE slot_date = $1 AND sport_id = $4 AND facility_code = $5
+           AND slot_time >= $2::time AND slot_time < ($2::time + make_interval(mins => $3))
+           AND deleted_at IS NULL ORDER BY slot_time FOR UPDATE`,
+        [selectedDate, selectedTime, booking.duration_mins, booking.sport_id, booking.facility_code]
+      );
+      const hasGap = targetSlots.rows.some((row, index, rows) => index > 0
+        && toTotalMinutes(row.slot_time.slice(0, 5)) - toTotalMinutes(rows[index - 1].slot_time.slice(0, 5)) !== SLOT_INTERVAL_MINUTES);
+      const conflict = await client.query<{ blocked: boolean }>(
+        `SELECT EXISTS (
+           SELECT 1 FROM bookings b
+           WHERE b.id <> $6 AND b.slot_date = $1 AND b.sport_id = $4 AND b.facility_code = $5
+             AND b.deleted_at IS NULL AND b.status IN ('confirmed', 'cash_pending')
+             AND $2::time < (b.slot_time + make_interval(mins => b.duration_mins))
+             AND b.slot_time < ($2::time + make_interval(mins => $3))
+         ) OR EXISTS (
+           SELECT 1 FROM slots s
+           WHERE s.slot_date = $1 AND s.sport_id = $4 AND s.facility_code = $5
+             AND s.slot_time >= $2::time AND s.slot_time < ($2::time + make_interval(mins => $3))
+             AND s.deleted_at IS NULL AND s.is_booked = TRUE
+             AND NOT (s.slot_date = $7::date AND s.slot_time >= $8::time
+               AND s.slot_time < ($8::time + make_interval(mins => $3)))
+         ) OR EXISTS (
+           SELECT 1 FROM slot_reservations sr
+           WHERE sr.slot_date = $1 AND sr.sport_id = $4 AND sr.facility_code = $5
+             AND sr.slot_time >= $2::time AND sr.slot_time < ($2::time + make_interval(mins => $3))
+             AND sr.status = 'pending' AND sr.expires_at > NOW()
+         ) OR EXISTS (
+           SELECT 1 FROM slot_block_rules block
+           WHERE block.deleted_at IS NULL
+             AND (
+               (block.rule_type = 'recurring' AND block.sport_id = $4 AND block.facility_code = $5
+                 AND $1::date BETWEEN block.valid_from AND block.valid_to
+                 AND block.weekday_name = $9
+                 AND $2::time < block.slot_end_time
+                 AND block.slot_start_time < ($2::time + make_interval(mins => $3)))
+               OR (block.rule_type = 'one-time' AND block.selected_dates ? ($1::date)::text
+                 AND ((block.sport_id = $4 AND block.facility_code = $5)
+                   OR (block.sport_id IS NULL AND block.facility_code IS NULL))
+                 AND $2::time < block.slot_end_time
+                 AND block.slot_start_time < ($2::time + make_interval(mins => $3)))
+             )
+         ) AS blocked`,
+        [selectedDate, selectedTime, booking.duration_mins, booking.sport_id, booking.facility_code,
+          booking.id, booking.slot_date, booking.slot_time, weekdayNameForDate(selectedDate)]
+      );
+      if (targetSlots.rowCount !== requiredSegments || hasGap || conflict.rows[0]?.blocked) {
+        throw new SlotAlreadyBookedError(selectedDate, selectedTime);
+      }
+
+      await client.query(
+        `UPDATE bookings SET slot_date = $2, slot_time = $3::time, updated_at = NOW(), updated_by = $4 WHERE id = $1`,
+        [booking.id, selectedDate, selectedTime, customerEmail.trim().toLowerCase()]
+      );
+      await synchronizeSlotBookingState(client, booking.slot_date, booking.sport_id, booking.facility_code);
+      if (selectedDate !== booking.slot_date) {
+        await synchronizeSlotBookingState(client, selectedDate, booking.sport_id, booking.facility_code);
+      }
+      await client.query('COMMIT');
+      return true;
+    } catch (error) {
+      await client.query('ROLLBACK');
+      throw error;
+    }
+  });
 }
 
 export async function upsertUserByEmail(email: string, provider: 'password' | 'google'): Promise<void> {

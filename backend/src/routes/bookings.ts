@@ -1,10 +1,10 @@
 import { Router } from 'express';
 import { authMiddleware, type AuthenticatedRequest } from '../middleware/authMiddleware';
-import { FacilityUnavailableError, listBookingsByCustomer, saveBooking, SlotAlreadyBookedError, SlotConfigurationMissingError, type SportFacilityRow } from '../lib/database';
+import { BookingNotManageableError, cancelBooking, FacilityUnavailableError, listBookingsByCustomer, rescheduleBooking, saveBooking, SlotAlreadyBookedError, SlotConfigurationMissingError, type SportFacilityRow } from '../lib/database';
 import { getStripeClient, isStripeConfigured, toMinorCurrencyUnits } from '../lib/stripe';
 import { calculateBookingPricing } from '../lib/bookingPricing';
 import { type SportRow } from '../lib/database';
-import { sendBookingConfirmationEmail } from '../lib/email';
+import { sendBookingConfirmationEmail, sendBookingUpdateEmail } from '../lib/email';
 
 const router = Router();
 const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
@@ -48,6 +48,78 @@ router.get('/', authMiddleware, async (req: AuthenticatedRequest, res) => {
 
   const bookings = await listBookingsByCustomer(normalizeEmail(email));
   res.json({ bookings });
+});
+
+router.delete('/:receiptId', authMiddleware, async (req: AuthenticatedRequest, res) => {
+  const email = req.user?.email;
+  if (!email) {
+    res.status(401).json({ error: 'Authorization token is required.' });
+    return;
+  }
+  try {
+    const status = await cancelBooking(req.params.receiptId, normalizeEmail(email));
+    if (!status) {
+      res.status(404).json({ error: 'Booking not found.' });
+      return;
+    }
+    void sendBookingUpdateEmail({
+      email: normalizeEmail(email),
+      receiptId: req.params.receiptId,
+      action: 'cancelled',
+    }).catch((error) => console.error('[booking:cancel] Notification email failed:', error));
+    res.json({ receiptId: req.params.receiptId, status });
+  } catch (error) {
+    if (error instanceof BookingNotManageableError) {
+      res.status(409).json({ error: error.message });
+      return;
+    }
+    console.error('[bookings] Unable to cancel booking.', error);
+    res.status(500).json({ error: 'Unable to cancel booking. Please try again.' });
+  }
+});
+
+router.patch('/:receiptId/reschedule', authMiddleware, async (req: AuthenticatedRequest, res) => {
+  const email = req.user?.email;
+  const { selectedDate, selectedTime } = req.body as { selectedDate?: string; selectedTime?: string };
+  if (!email) {
+    res.status(401).json({ error: 'Authorization token is required.' });
+    return;
+  }
+  if (!selectedDate || !/^\d{4}-\d{2}-\d{2}$/.test(selectedDate)
+      || !selectedTime || !/^([01]\d|2[0-3]):(00|30)$/.test(selectedTime)) {
+    res.status(400).json({ error: 'Select a valid date and 30-minute start time.' });
+    return;
+  }
+  try {
+    const updated = await rescheduleBooking(req.params.receiptId, normalizeEmail(email), selectedDate, selectedTime);
+    if (!updated) {
+      res.status(404).json({ error: 'Booking not found.' });
+      return;
+    }
+    void sendBookingUpdateEmail({
+      email: normalizeEmail(email),
+      receiptId: req.params.receiptId,
+      action: 'rescheduled',
+      slotDate: selectedDate,
+      slotTime: selectedTime,
+    }).catch((error) => console.error('[booking:reschedule] Notification email failed:', error));
+    res.json({ receiptId: req.params.receiptId, selectedDate, selectedTime });
+  } catch (error) {
+    if (error instanceof BookingNotManageableError || error instanceof SlotAlreadyBookedError) {
+      res.status(409).json({ error: error.message });
+      return;
+    }
+    if (error instanceof FacilityUnavailableError) {
+      res.status(400).json({ error: error.message });
+      return;
+    }
+    if (error instanceof SlotConfigurationMissingError) {
+      res.status(422).json({ error: error.message });
+      return;
+    }
+    console.error('[bookings] Unable to reschedule booking.', error);
+    res.status(500).json({ error: 'Unable to reschedule booking. Please try again.' });
+  }
 });
 
 // POST /api/bookings/mock (requires Bearer token; development fallback only)

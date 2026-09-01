@@ -37,6 +37,12 @@ export function markLocalBooked(sportId: string, facilityCode: string, date: str
   writeMap(map);
 }
 
+export function unmarkLocalBooked(sportId: string, facilityCode: string, date: string, time: string): void {
+  const map = readMap();
+  delete map[makeSlotKey(sportId, facilityCode, date, time)];
+  writeMap(map);
+}
+
 export function mergeWithLocalBooked(sportId: string, facilityCode: string, date: string, slots: TimeSlot[]): TimeSlot[] {
   const map = readMap();
   return slots.map(slot => {

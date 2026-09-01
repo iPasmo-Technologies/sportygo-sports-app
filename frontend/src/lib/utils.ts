@@ -84,12 +84,12 @@ export function formatDateShort(dateStr: string): string {
 // ─── Receipt ID generator ────────────────────────────────────
 
 export function makeReceiptId(): string {
-  const chars = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789';
-  let id = 'SG-';
-  for (let i = 0; i < 10; i++) {
-    id += chars[Math.floor(Math.random() * chars.length)];
-  }
-  return id;
+  const year = toSgtIsoDate(new Date()).slice(2, 4);
+  const characters = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789';
+  const randomValues = new Uint8Array(6);
+  crypto.getRandomValues(randomValues);
+  const suffix = Array.from(randomValues, (value) => characters[value % characters.length]).join('');
+  return `SGO${year}${suffix}`;
 }
 
 // ─── ARIA live announcer ─────────────────────────────────────

@@ -4,9 +4,11 @@ import type {
   AdminBlockRulesResponse,
   AdminRecurringBlockPayload,
   AdminBlockWeekday,
+  BookingCancellationResponse,
   BookingHistoryResponse,
   BookingPayload,
   BookingResponse,
+  BookingRescheduleResponse,
   LoginResponse,
   ProfileResponse,
   RegisterPayload,
@@ -22,7 +24,7 @@ import type {
   SportId,
   SportOption,
 } from '@/types';
-import { markLocalBooked, mergeWithLocalBooked } from './localBookedSlots';
+import { markLocalBooked, mergeWithLocalBooked, unmarkLocalBooked } from './localBookedSlots';
 import { encryptPasswordForTransport } from './authCrypto';
 import fallbackSports from '@/data/json/sports.json';
 import fallbackSportEvents from '@/data/json/sport-events.json';
@@ -534,4 +536,32 @@ export async function fetchMyBookings(token: string): Promise<BookingHistoryResp
     }
     throw error;
   }
+}
+
+export async function cancelMyBooking(
+  booking: { receiptId: string; sportId: SportId; facilityCode: string; slotDate: string; slotTime: string },
+  token: string
+): Promise<BookingCancellationResponse> {
+  const response = await request<BookingCancellationResponse>(`/api/bookings/${encodeURIComponent(booking.receiptId)}`, {
+    method: 'DELETE',
+    headers: { Authorization: `Bearer ${token}` },
+  });
+  unmarkLocalBooked(booking.sportId, booking.facilityCode, booking.slotDate, booking.slotTime.slice(0, 5));
+  return response;
+}
+
+export async function rescheduleMyBooking(
+  booking: { receiptId: string; sportId: SportId; facilityCode: string; slotDate: string; slotTime: string },
+  selectedDate: string,
+  selectedTime: string,
+  token: string
+): Promise<BookingRescheduleResponse> {
+  const response = await request<BookingRescheduleResponse>(`/api/bookings/${encodeURIComponent(booking.receiptId)}/reschedule`, {
+    method: 'PATCH',
+    headers: { Authorization: `Bearer ${token}` },
+    body: JSON.stringify({ selectedDate, selectedTime }),
+  });
+  unmarkLocalBooked(booking.sportId, booking.facilityCode, booking.slotDate, booking.slotTime.slice(0, 5));
+  markLocalBooked(booking.sportId, booking.facilityCode, selectedDate, selectedTime);
+  return response;
 }

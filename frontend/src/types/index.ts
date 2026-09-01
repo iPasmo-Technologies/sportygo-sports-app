@@ -297,11 +297,13 @@ export interface BookingResponse {
 export interface BookingHistoryItem {
   receiptId: string;
   bookingType: BookingType;
+  sportId: SportId;
+  facilityCode: string;
   slotDate: string;
   slotTime: string;
   durationMins: number;
   grandTotal: number;
-  status: 'confirmed' | 'cash_pending';
+  status: 'confirmed' | 'cash_pending' | 'cancelled';
   payMethod: PayMethod;
   paymentMethod: 'ONLINE' | 'CASH';
   facilityTitle: string | null;
@@ -313,4 +315,15 @@ export interface BookingHistoryItem {
 
 export interface BookingHistoryResponse {
   bookings: BookingHistoryItem[];
+}
+
+export interface BookingCancellationResponse {
+  receiptId: string;
+  status: 'cancelled';
+}
+
+export interface BookingRescheduleResponse {
+  receiptId: string;
+  selectedDate: string;
+  selectedTime: string;
 }
