@@ -3716,19 +3716,6 @@ input { font-family: inherit; }
   height: 26px;
   flex-shrink: 0;
 }
-.success-tags-v2 {
-  margin-top: 6px;
-  display: flex;
-  gap: 8px;
-}
-.success-tags-v2 span {
-  border-radius: 8px;
-  background: rgba(17, 35, 68, 0.9);
-  border: 1px solid rgba(39, 58, 87, 0.9);
-  color: #d1d9e8;
-  font-size: 0.62rem;
-  padding: 3px 7px;
-}
 .success-payment-row-v2 {
   display: grid;
   grid-template-columns: 1fr 1fr;
@@ -4794,6 +4781,11 @@ input { font-family: inherit; }
 .bookings-status-v2.completed {
   color: #7ccf57;
 }
+.bookings-status-v2.cancelled {
+  color: #ff9aa3;
+  background: rgba(125, 25, 38, 0.82);
+  border-color: rgba(224, 69, 82, 0.78);
+}
 .bookings-card-info-v2 p {
   color: #ccd5e2;
   font-size: 0.78rem;
@@ -4931,7 +4923,8 @@ input { font-family: inherit; }
   color: #c6cfde;
   font-size: 0.8rem;
 }
-.bookings-help-v2 button {
+.bookings-help-v2 button,
+.bookings-help-v2 a {
   min-height: 40px;
   border-radius: 10px;
   border: 1px solid rgba(212, 165, 86, 0.92);
@@ -4941,6 +4934,10 @@ input { font-family: inherit; }
   font-weight: 700;
   padding: 0 13px;
   white-space: nowrap;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  text-decoration: none;
 }
 .booking-details-backdrop {
   position: fixed;
@@ -5127,6 +5124,94 @@ input { font-family: inherit; }
   border-radius: 10px;
   font-size: 0.86rem;
   font-weight: 700;
+}
+.booking-action-dialog .error-banner {
+  margin-top: 12px;
+}
+.booking-cancel-message {
+  margin-top: 14px;
+  border: 1px solid rgba(224, 69, 82, 0.55);
+  border-radius: 10px;
+  background: rgba(91, 20, 32, 0.34);
+  padding: 12px;
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+}
+.booking-cancel-message > svg {
+  flex-shrink: 0;
+  color: #ff7b87;
+}
+.booking-cancel-message strong {
+  display: block;
+  color: #f5f7fb;
+  font-size: 0.86rem;
+  line-height: 1.35;
+}
+.booking-cancel-message p,
+.booking-reschedule-empty {
+  margin-top: 5px;
+  color: #bec9d9;
+  font-size: 0.76rem;
+  line-height: 1.45;
+}
+.booking-reschedule-form {
+  padding-top: 14px;
+}
+.booking-reschedule-form label,
+.booking-reschedule-label {
+  display: block;
+  margin-bottom: 6px;
+  color: #dce3ee;
+  font-size: 0.76rem;
+  font-weight: 700;
+}
+.booking-reschedule-form input {
+  width: 100%;
+  min-height: 44px;
+  margin-bottom: 14px;
+  border: 1px solid rgba(76, 96, 128, 0.92);
+  border-radius: 9px;
+  background: #071631;
+  color: #eef3fb;
+  padding: 0 11px;
+  color-scheme: dark;
+}
+.booking-reschedule-slots {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 7px;
+  max-height: 210px;
+  overflow-y: auto;
+}
+.booking-reschedule-slots button {
+  min-height: 38px;
+  border: 1px solid rgba(69, 91, 126, 0.9);
+  border-radius: 8px;
+  background: rgba(8, 25, 55, 0.92);
+  color: #d7dfeb;
+  font-size: 0.72rem;
+  font-weight: 700;
+}
+.booking-reschedule-slots button.selected {
+  border-color: #7bcf57;
+  background: rgba(35, 91, 47, 0.72);
+  color: #f3ffef;
+}
+.booking-action-footer {
+  margin-top: 16px;
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 8px;
+}
+.booking-action-footer .bookings-action-btn-v2 {
+  width: 100%;
+  min-width: 0;
+}
+.bookings-action-btn-v2:disabled,
+.booking-details-close:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
 }
 .bookings-bottom-nav-v2 {
   position: absolute;

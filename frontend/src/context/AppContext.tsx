@@ -35,6 +35,7 @@ const initialState: AppState = {
   grandTotal:       0,
   receiptId:        '',
   paymentStatus:    null,
+  paymentCard:      null,
   whatsAppMockSent: false,
   paymentError:     null,
   postLoginRedirect: null,
@@ -128,6 +129,9 @@ function reducer(state: AppState, action: Action): AppState {
 
     case 'SET_PAYMENT_STATUS':
       return { ...state, paymentStatus: action.payload, paymentError: null };
+
+    case 'SET_PAYMENT_CARD':
+      return { ...state, paymentCard: action.payload };
 
     case 'SET_PAYMENT_ERROR':
       return { ...state, paymentError: action.payload };

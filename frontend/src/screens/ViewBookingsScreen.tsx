@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState } from 'react';
 import {
+  AlertTriangle,
   CalendarDays,
   Clock3,
   Copy,
@@ -12,7 +13,7 @@ import {
   X,
 } from 'lucide-react';
 import { useApp } from '@/context/AppContext';
-import { fetchMyBookings } from '@/lib/api';
+import { cancelMyBooking, fetchMyBookings, fetchSlots, rescheduleMyBooking } from '@/lib/api';
 import { announce } from '@/lib/utils';
 import ScreenHeader from '@/components/ScreenHeader';
 import ErrorBanner from '@/components/ErrorBanner';
@@ -25,7 +26,7 @@ import cricketCard from '@/assets/card_cricket.png';
 import cricketGear from '@/assets/cricket_gear.png';
 import pickleballIndoorCourt from '@/assets/pb-indoor-court.png';
 import pickleballOutdoorCourt from '@/assets/pb-outdoor-court.png';
-import type { BookingHistoryItem } from '@/types';
+import type { BookingHistoryItem, TimeSlot } from '@/types';
 
 const FACILITY_IMAGES = {
   'bowling-lane': cricketFacilityImage,
@@ -43,6 +44,10 @@ type BookingTab = 'upcoming' | 'previous';
 type BookingCard = {
   id: string;
   bookingType: BookingHistoryItem['bookingType'];
+  sportId: BookingHistoryItem['sportId'];
+  facilityCode: string;
+  slotDate: string;
+  slotTime: string;
   title: string;
   location: string | null;
   mapLocationUrl: string | null;
@@ -51,7 +56,8 @@ type BookingCard = {
   durationMins: number;
   amount: string;
   statusLabel: string;
-  statusType: 'upcoming' | 'completed';
+  status: BookingHistoryItem['status'];
+  statusType: 'upcoming' | 'completed' | 'cancelled';
   payMethod: BookingHistoryItem['payMethod'];
   paymentMethod: BookingHistoryItem['paymentMethod'];
   image: string | null;
@@ -98,11 +104,15 @@ function mapHistoryToCard(item: BookingHistoryItem): BookingCard {
   const isPast = bookingDateTimeKey(item) < currentSingaporeDateTimeKey();
   const start = item.slotTime.slice(0, 5);
   const end = addMinutes(start, item.durationMins);
-  const statusLabel = item.status === 'cash_pending' ? 'Pending Cash' : isPast ? 'Completed' : 'Upcoming';
+  const statusLabel = item.status === 'cancelled' ? 'Cancelled' : item.status === 'cash_pending' ? 'Pending Cash' : isPast ? 'Completed' : 'Upcoming';
 
   return {
     id: item.receiptId,
     bookingType: item.bookingType,
+    sportId: item.sportId,
+    facilityCode: item.facilityCode,
+    slotDate: item.slotDate,
+    slotTime: item.slotTime,
     title: item.facilityTitle ?? 'Facility details unavailable',
     location: item.facilityAddress,
     mapLocationUrl: item.facilityMapLocationUrl,
@@ -111,7 +121,8 @@ function mapHistoryToCard(item: BookingHistoryItem): BookingCard {
     durationMins: item.durationMins,
     amount: `S$${item.grandTotal.toFixed(2)}`,
     statusLabel,
-    statusType: isPast ? 'completed' : 'upcoming',
+    status: item.status,
+    statusType: item.status === 'cancelled' ? 'cancelled' : isPast ? 'completed' : 'upcoming',
     payMethod: item.payMethod,
     paymentMethod: item.paymentMethod,
     image: item.facilityImageKey ? FACILITY_IMAGES[item.facilityImageKey] : null,
@@ -122,10 +133,14 @@ function BookingCardView({
   booking,
   showActions,
   onViewDetails,
+  onReschedule,
+  onCancel,
 }: {
   booking: BookingCard;
   showActions: boolean;
   onViewDetails: (booking: BookingCard) => void;
+  onReschedule: (booking: BookingCard) => void;
+  onCancel: (booking: BookingCard) => void;
 }) {
   function copyId() {
     navigator.clipboard.writeText(booking.id).catch(() => undefined);
@@ -180,8 +195,8 @@ function BookingCardView({
 
         {showActions ? (
           <div className="bookings-actions-v2">
-            <button type="button" className="bookings-action-btn-v2">Reschedule</button>
-            <button type="button" className="bookings-action-btn-v2 danger">Cancel Booking</button>
+            <button type="button" className="bookings-action-btn-v2" onClick={() => onReschedule(booking)}>Reschedule</button>
+            <button type="button" className="bookings-action-btn-v2 danger" onClick={() => onCancel(booking)}>Cancel Booking</button>
           </div>
         ) : (
           <div className="bookings-actions-v2">
@@ -196,6 +211,139 @@ function BookingCardView({
         )}
       </div>
     </article>
+  );
+}
+
+function availableStartTimes(slots: TimeSlot[], durationMins: number): TimeSlot[] {
+  const requiredSegments = Math.max(1, Math.ceil(durationMins / 30));
+  return slots.filter((slot, index) => {
+    if (slot.booked || slot.past) return false;
+    for (let offset = 1; offset < requiredSegments; offset += 1) {
+      const next = slots[index + offset];
+      if (!next || next.booked || next.past || addMinutes(slot.time, offset * 30) !== next.time) return false;
+    }
+    return true;
+  });
+}
+
+function BookingActionDialog({ booking, mode, token, onClose, onCancelled, onRescheduled }: {
+  booking: BookingHistoryItem;
+  mode: 'cancel' | 'reschedule';
+  token: string;
+  onClose: () => void;
+  onCancelled: () => void;
+  onRescheduled: (selectedDate: string, selectedTime: string) => void;
+}) {
+  const minimumDate = currentSingaporeDateTimeKey().slice(0, 10);
+  const [selectedDate, setSelectedDate] = useState(booking.slotDate);
+  const [selectedTime, setSelectedTime] = useState('');
+  const [slots, setSlots] = useState<TimeSlot[]>([]);
+  const [loadingSlots, setLoadingSlots] = useState(mode === 'reschedule');
+  const [submitting, setSubmitting] = useState(false);
+  const [dialogError, setDialogError] = useState<string | null>(null);
+
+  useEffect(() => {
+    function handleKeyDown(event: KeyboardEvent) {
+      if (event.key === 'Escape' && !submitting) onClose();
+    }
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, [onClose, submitting]);
+
+  useEffect(() => {
+    if (mode !== 'reschedule') return;
+    let cancelled = false;
+    setLoadingSlots(true);
+    setDialogError(null);
+    setSelectedTime('');
+    fetchSlots(selectedDate, booking.sportId, booking.facilityCode)
+      .then((response) => {
+        if (!cancelled) setSlots(availableStartTimes(response.slots, booking.durationMins));
+      })
+      .catch((error) => {
+        if (!cancelled) setDialogError(error instanceof Error ? error.message : 'Unable to load available times.');
+      })
+      .finally(() => {
+        if (!cancelled) setLoadingSlots(false);
+      });
+    return () => { cancelled = true; };
+  }, [booking.durationMins, booking.facilityCode, booking.sportId, mode, selectedDate]);
+
+  async function submit() {
+    if (mode === 'reschedule' && !selectedTime) return;
+    setSubmitting(true);
+    setDialogError(null);
+    try {
+      if (mode === 'cancel') {
+        await cancelMyBooking(booking, token);
+        announce('Booking cancelled. The slot is available for others.');
+        onCancelled();
+      } else {
+        await rescheduleMyBooking(booking, selectedDate, selectedTime, token);
+        announce('Booking rescheduled successfully.');
+        onRescheduled(selectedDate, selectedTime);
+      }
+    } catch (error) {
+      setDialogError(error instanceof Error ? error.message : 'Unable to update the booking.');
+    } finally {
+      setSubmitting(false);
+    }
+  }
+
+  return (
+    <div className="booking-details-backdrop" role="presentation" onMouseDown={(event) => {
+      if (event.target === event.currentTarget && !submitting) onClose();
+    }}>
+      <section className="booking-details-dialog booking-action-dialog" role="dialog" aria-modal="true" aria-labelledby="booking-action-title">
+        <header className="booking-details-header">
+          <div>
+            <span className="booking-details-eyebrow">Booking {booking.receiptId}</span>
+            <h2 id="booking-action-title">{mode === 'cancel' ? 'Cancel Booking?' : 'Reschedule Booking'}</h2>
+          </div>
+          <button type="button" className="booking-details-close" onClick={onClose} disabled={submitting} aria-label="Close">
+            <X size={20} strokeWidth={2.3} />
+          </button>
+        </header>
+
+        {dialogError && <ErrorBanner message={dialogError} onDismiss={() => setDialogError(null)} />}
+
+        {mode === 'cancel' ? (
+          <div className="booking-cancel-message">
+            <AlertTriangle size={24} strokeWidth={2.1} />
+            <div>
+              <strong>The reserved slot will be released immediately.</strong>
+              <p>{booking.paymentMethod === 'ONLINE'
+                ? 'This action does not automatically refund the card payment. Contact support for refund assistance.'
+                : 'Any pending cash payment will no longer be required.'}</p>
+            </div>
+          </div>
+        ) : (
+          <div className="booking-reschedule-form">
+            <label htmlFor="reschedule-date">New date</label>
+            <input id="reschedule-date" type="date" min={minimumDate} value={selectedDate} onChange={(event) => setSelectedDate(event.target.value)} />
+            <span className="booking-reschedule-label">Available start times ({booking.durationMins} minutes)</span>
+            {loadingSlots ? <Spinner /> : slots.length === 0 ? (
+              <p className="booking-reschedule-empty">No suitable times are available on this date.</p>
+            ) : (
+              <div className="booking-reschedule-slots">
+                {slots.map((slot) => (
+                  <button key={slot.key} type="button" className={selectedTime === slot.time ? 'selected' : ''} onClick={() => setSelectedTime(slot.time)}>
+                    {to12Hour(slot.time)}
+                  </button>
+                ))}
+              </div>
+            )}
+          </div>
+        )}
+
+        <div className="booking-action-footer">
+          <button type="button" className="bookings-action-btn-v2 ghost" onClick={onClose} disabled={submitting}>Keep Booking</button>
+          <button type="button" className={`bookings-action-btn-v2${mode === 'cancel' ? ' danger' : ''}`} onClick={submit} disabled={submitting || (mode === 'reschedule' && !selectedTime)}>
+            {submitting ? 'Saving...' : mode === 'cancel' ? 'Confirm Cancellation' : 'Confirm Reschedule'}
+          </button>
+        </div>
+      </section>
+    </div>
   );
 }
 
@@ -318,6 +466,7 @@ export default function ViewBookingsScreen() {
   const [error, setError] = useState<string | null>(null);
   const [historyItems, setHistoryItems] = useState<BookingHistoryItem[]>([]);
   const [selectedBooking, setSelectedBooking] = useState<BookingCard | null>(null);
+  const [actionBooking, setActionBooking] = useState<{ booking: BookingHistoryItem; mode: 'cancel' | 'reschedule' } | null>(null);
 
   useEffect(() => {
     if (!state.authToken) return;
@@ -349,8 +498,8 @@ export default function ViewBookingsScreen() {
     const currentKey = currentSingaporeDateTimeKey();
     return historyItems
       .filter((item) => tab === 'upcoming'
-        ? bookingDateTimeKey(item) >= currentKey
-        : bookingDateTimeKey(item) < currentKey)
+        ? item.status !== 'cancelled' && bookingDateTimeKey(item) >= currentKey
+        : item.status === 'cancelled' || bookingDateTimeKey(item) < currentKey)
       .map(mapHistoryToCard);
   }, [historyItems, tab]);
 
@@ -409,6 +558,14 @@ export default function ViewBookingsScreen() {
                     booking={booking}
                     showActions={tab === 'upcoming'}
                     onViewDetails={setSelectedBooking}
+                    onReschedule={(selected) => {
+                      const item = historyItems.find((candidate) => candidate.receiptId === selected.id);
+                      if (item) setActionBooking({ booking: item, mode: 'reschedule' });
+                    }}
+                    onCancel={(selected) => {
+                      const item = historyItems.find((candidate) => candidate.receiptId === selected.id);
+                      if (item) setActionBooking({ booking: item, mode: 'cancel' });
+                    }}
                   />
                 ))}
               </div>
@@ -423,13 +580,33 @@ export default function ViewBookingsScreen() {
               </strong>
               <p>Contact our support team for assistance.</p>
             </div>
-            <button type="button">Contact Support</button>
+            <a href="mailto:admin@sportygo.com.sg?subject=SportyGo%20Booking%20Support">Contact Support</a>
           </section>
         </div>
 
       </div>
       {selectedBooking && (
         <BookingDetailsDialog booking={selectedBooking} onClose={() => setSelectedBooking(null)} />
+      )}
+      {actionBooking && state.authToken && (
+        <BookingActionDialog
+          booking={actionBooking.booking}
+          mode={actionBooking.mode}
+          token={state.authToken}
+          onClose={() => setActionBooking(null)}
+          onCancelled={() => {
+            setHistoryItems((items) => items.map((item) => item.receiptId === actionBooking.booking.receiptId
+              ? { ...item, status: 'cancelled' }
+              : item));
+            setActionBooking(null);
+          }}
+          onRescheduled={(selectedDate, selectedTime) => {
+            setHistoryItems((items) => items.map((item) => item.receiptId === actionBooking.booking.receiptId
+              ? { ...item, slotDate: selectedDate, slotTime: selectedTime }
+              : item));
+            setActionBooking(null);
+          }}
+        />
       )}
     </div>
   );

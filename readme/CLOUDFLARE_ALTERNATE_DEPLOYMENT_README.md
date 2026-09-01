@@ -255,19 +255,37 @@ After the command-line deployment succeeds:
 2. Select the backend Worker.
 3. Open **Settings -> Builds -> Connect**.
 4. Select the same GitHub repository.
-5. Set the Workers Builds root directory to:
+5. Use these production build settings:
 
 ```text
-cloudflare/backend-worker
+Build command: None (leave blank)
+Deploy command: npx wrangler deploy
+Root directory: cloudflare/backend-worker
+Production branch: main
 ```
 
-6. Set the production deploy command to:
+6. Select **Create new token** and keep the automatically generated Workers Builds API token. A descriptive name such as `SportyGo Backend Workers Builds` is sufficient.
+7. Leave build-time variable name and value fields blank. Configure backend credentials separately under the Worker's runtime **Settings -> Variables and Secrets**.
+8. Disable **Builds for non-production branches**. The default version command can remain as shown:
 
 ```text
-npx wrangler deploy
+npx wrangler versions upload
 ```
 
-Container production builds must use `wrangler deploy`; a versions-only upload does not publish the updated Container image.
+It will not run while non-production builds are disabled. Container previews should remain disabled because `wrangler versions upload` does not publish an updated Container image and Durable Object/Container Workers do not receive a normal preview URL.
+
+9. Keep the default build watch paths for the initial deployment:
+
+```text
+Include paths: *
+Exclude paths: node_modules/**, .git/
+```
+
+This safely triggers the backend build for every repository change. To avoid unrelated builds later, narrow the includes to `cloudflare/backend-worker/*`, `backend/*`, and `Dockerfile.backend`.
+
+10. Push a commit to `main` and monitor the first production build.
+
+Container production builds must use `wrangler deploy`; it bundles the Worker, builds and publishes the image, and rolls out the Container instances. A separate build command is not required.
 
 ### Backend dashboard and GitHub screenshots
 
