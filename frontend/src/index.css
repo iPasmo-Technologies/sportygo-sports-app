@@ -3716,19 +3716,6 @@ input { font-family: inherit; }
   height: 26px;
   flex-shrink: 0;
 }
-.success-tags-v2 {
-  margin-top: 6px;
-  display: flex;
-  gap: 8px;
-}
-.success-tags-v2 span {
-  border-radius: 8px;
-  background: rgba(17, 35, 68, 0.9);
-  border: 1px solid rgba(39, 58, 87, 0.9);
-  color: #d1d9e8;
-  font-size: 0.62rem;
-  padding: 3px 7px;
-}
 .success-payment-row-v2 {
   display: grid;
   grid-template-columns: 1fr 1fr;

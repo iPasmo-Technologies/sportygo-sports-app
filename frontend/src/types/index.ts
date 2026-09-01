@@ -124,6 +124,7 @@ export interface AppState {
   grandTotal: number;
   receiptId: string;
   paymentStatus: PaymentStatus | null;
+  paymentCard: { brand: string; last4: string } | null;
   whatsAppMockSent: boolean;
   paymentError: string | null;
   postLoginRedirect: Screen | null;
@@ -148,6 +149,7 @@ export type Action =
   | { type: 'SET_PRICING'; payload: { priceSubtotal: number; tax: number; platformFee: number; grandTotal: number } }
   | { type: 'SET_RECEIPT'; payload: string }
   | { type: 'SET_PAYMENT_STATUS'; payload: PaymentStatus }
+  | { type: 'SET_PAYMENT_CARD'; payload: { brand: string; last4: string } | null }
   | { type: 'SET_PAYMENT_ERROR'; payload: string | null }
   | { type: 'SET_POST_LOGIN_REDIRECT'; payload: Screen | null }
   | { type: 'MARK_WHATSAPP_SENT' }
@@ -288,6 +290,8 @@ export interface BookingResponse {
   receiptId: string;
   status: PaymentStatus;
   paymentMethod: 'ONLINE' | 'CASH';
+  cardBrand?: string;
+  cardLast4?: string;
 }
 
 export interface BookingHistoryItem {

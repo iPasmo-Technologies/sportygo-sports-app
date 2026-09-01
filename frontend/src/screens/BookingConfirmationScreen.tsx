@@ -2,7 +2,7 @@ import { useEffect } from 'react';
 import { ArrowRight, CalendarDays, Check, Clock3, Copy, Lock, MapPin, ShieldCheck, Trophy } from 'lucide-react';
 import { useApp } from '@/context/AppContext';
 import { sgd } from '@/lib/pricing';
-import { announce, formatDateLong, formatSgtTime } from '@/lib/utils';
+import { announce, formatDateLong } from '@/lib/utils';
 import logoImage from '@/assets/logo.png';
 import pageBackground from '@/assets/select_sport_bk.png';
 import indoorCricketCard from '@/assets/card_indoor_cricket.png';
@@ -54,8 +54,17 @@ function addMinutes(time: string, minutes: number): string {
   return `${String(nextH).padStart(2, '0')}:${String(nextM).padStart(2, '0')}`;
 }
 
-function paymentMethodLabel(method: string | null): string {
-  if (method === 'STRIPE') return 'VISA •••• 4242';
+function paymentMethodLabel(method: string | null, card: { brand: string; last4: string } | null): string {
+  if (method === 'STRIPE') {
+    if (!card) return 'Card';
+    const brandLabels: Record<string, string> = {
+      amex: 'AMEX',
+      mastercard: 'Mastercard',
+      unionpay: 'UnionPay',
+      visa: 'Visa',
+    };
+    return `${brandLabels[card.brand] ?? card.brand} •••• ${card.last4}`;
+  }
   if (method === 'GPAY') return 'Google Pay';
   if (method === 'PAYNOW') return 'PayNow';
   if (method === 'GRABPAY') return 'GrabPay';
@@ -70,8 +79,6 @@ export default function BookingConfirmationScreen() {
   const selectedFacilityAddress = state.selectedFacility?.address ?? 'Location not available';
   const selectedFacilityImage = state.selectedFacility ? FACILITY_IMAGES[state.selectedFacility.imageKey] : indoorCricketCard;
   const dateLong      = state.selectedDate ? formatDateLong(state.selectedDate) : 'Not selected';
-  const bookingTypeTag = state.bookingType === 'coaching' ? 'Coaching' : 'Court Booking';
-  const durationTag = `${state.durationMins} mins`;
   const paymentStatus = state.paymentStatus ?? 'success';
   const isPaid = paymentStatus === 'success';
   const timeLabel = state.selectedTime
@@ -85,8 +92,6 @@ export default function BookingConfirmationScreen() {
       dispatch({ type: 'MARK_WHATSAPP_SENT' });
     }
   }, [state.whatsAppMockSent, dispatch]);
-
-  const sentTimeStr = formatSgtTime(new Date());
 
   function handleReset() {
     dispatch({ type: 'RESET' });
@@ -192,7 +197,6 @@ export default function BookingConfirmationScreen() {
                 </span>
                 {timeLabel}
               </p>
-              <div className="success-tags-v2"><span>{bookingTypeTag}</span><span>{durationTag}</span></div>
             </div>
           </div>
 
@@ -204,7 +208,7 @@ export default function BookingConfirmationScreen() {
             </div>
             <div>
               <small>Payment Method</small>
-              <strong>{isPaid ? paymentMethodLabel(state.payMethod) : 'Cash at Venue'}</strong>
+              <strong>{isPaid ? paymentMethodLabel(state.payMethod, state.paymentCard) : 'Cash at Venue'}</strong>
             </div>
           </div>
 
@@ -220,7 +224,7 @@ export default function BookingConfirmationScreen() {
           <span className="success-banner-icon-v2"><Trophy size={22} strokeWidth={2.2} /></span>
           <div>
             <strong>{isPaid ? 'Keep Moving. Keep Achieving!' : 'Your Slot Is Reserved!'}</strong>
-            <small>{isPaid ? `See you on the field! (${sentTimeStr})` : `Proceed to cash payment at check-in. (${sentTimeStr})`}</small>
+            <small>{isPaid ? 'See you on the field!' : 'Proceed to cash payment at check-in.'}</small>
           </div>
         </section>
 

@@ -221,6 +221,8 @@ router.post('/', authMiddleware, async (req: AuthenticatedRequest, res) => {
   let responseStatus: 'success' | 'cash' = 'cash';
   let bookingStatus = 'cash_pending';
   let paymentMethod: 'ONLINE' | 'CASH' = 'CASH';
+  let cardBrand: string | undefined;
+  let cardLast4: string | undefined;
 
   if (payMethod === 'STRIPE') {
     if (!isStripeConfigured()) {
@@ -232,7 +234,9 @@ router.post('/', authMiddleware, async (req: AuthenticatedRequest, res) => {
 
     try {
       const stripe = getStripeClient();
-      const intent = await stripe.paymentIntents.retrieve((stripePaymentIntentId as string).trim());
+      const intent = await stripe.paymentIntents.retrieve((stripePaymentIntentId as string).trim(), {
+        expand: ['payment_method'],
+      });
 
       if (intent.status !== 'succeeded') {
         res.status(402).json({
@@ -261,6 +265,11 @@ router.post('/', authMiddleware, async (req: AuthenticatedRequest, res) => {
       responseStatus = 'success';
       bookingStatus = 'confirmed';
       paymentMethod = 'ONLINE';
+      const stripePaymentMethod = typeof intent.payment_method === 'string'
+        ? await stripe.paymentMethods.retrieve(intent.payment_method)
+        : intent.payment_method;
+      cardBrand = stripePaymentMethod?.card?.brand;
+      cardLast4 = stripePaymentMethod?.card?.last4;
     } catch (error) {
       console.error('[bookings] Stripe payment verification failed:', error);
       res.status(502).json({ error: 'Unable to verify card payment. Please contact support if the charge was completed.' });
@@ -336,6 +345,8 @@ router.post('/', authMiddleware, async (req: AuthenticatedRequest, res) => {
     receiptId,
     status: responseStatus,
     paymentMethod,
+    cardBrand,
+    cardLast4,
   });
 });
 

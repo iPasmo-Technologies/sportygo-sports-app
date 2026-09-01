@@ -268,14 +268,28 @@ After the adapter works from the machine:
 1. Open **Workers & Pages** and select the backend Worker.
 2. Open **Settings** -> **Builds** -> **Connect**.
 3. Select GitHub and the `iPasmo-Technologies/sportygo-sports-app` repository.
-4. Set the Workers Builds root directory to the adapter directory.
-5. Set the production deploy command to:
+4. Use these production build settings:
 
 ```text
-npx wrangler deploy
+Build command: None (leave blank)
+Deploy command: npx wrangler deploy
+Root directory: cloudflare/backend-worker
+Production branch: main
 ```
 
-6. Push to the production branch and monitor the build.
+5. Select **Create new token** and keep the automatically generated Workers Builds API token. A descriptive name such as `SportyGo Backend Workers Builds` is sufficient.
+6. Leave build-time variable name and value fields blank. Backend credentials belong in the Worker's runtime **Settings** -> **Variables and Secrets**, not in Workers Builds.
+7. Disable **Builds for non-production branches**. The displayed default version command, `npx wrangler versions upload`, can remain unchanged because it will not run while non-production builds are disabled.
+8. Keep the default build watch paths to deploy for any repository change:
+
+```text
+Include paths: *
+Exclude paths: node_modules/**, .git/
+```
+
+The broad `*` include is safe for the initial deployment, although frontend-only and documentation changes will also trigger a backend build. It can be narrowed later to `cloudflare/backend-worker/*`, `backend/*`, and `Dockerfile.backend` if unnecessary builds become a concern.
+
+9. Push a commit to `main` and monitor the first build.
 
 For Container Workers, production must use `wrangler deploy`, because it publishes the image and rolls out container instances. A preview `wrangler versions upload` does not update the container image and does not provide a normal full-app preview URL.
 

@@ -192,6 +192,7 @@ function CheckoutScreenContent() {
   useEffect(() => {
     // Always open checkout with no preselected payment method.
     dispatch({ type: 'SET_PAY_METHOD', payload: null });
+    dispatch({ type: 'SET_PAYMENT_CARD', payload: null });
   }, [dispatch]);
 
   function setFieldFocus(field: CardFieldKey, focused: boolean) {
@@ -372,6 +373,12 @@ function CheckoutScreenContent() {
       dispatch({ type: 'SET_PRICING', payload: pricing });
       dispatch({ type: 'SET_RECEIPT', payload: receiptId });
       dispatch({ type: 'SET_PAYMENT_STATUS', payload: result.status });
+      dispatch({
+        type: 'SET_PAYMENT_CARD',
+        payload: result.cardBrand && result.cardLast4
+          ? { brand: result.cardBrand, last4: result.cardLast4 }
+          : null,
+      });
       navigate('booking-confirmation');
       if (result.status === 'success') {
         announce('Payment successful! Booking confirmed.');
@@ -441,6 +448,7 @@ function CheckoutScreenContent() {
       dispatch({ type: 'SET_PRICING', payload: mockPricing });
       dispatch({ type: 'SET_RECEIPT', payload: receiptId });
       dispatch({ type: 'SET_PAYMENT_STATUS', payload: result.status });
+      dispatch({ type: 'SET_PAYMENT_CARD', payload: null });
       announce('Mock payment successful. Booking confirmed.');
       navigate('booking-confirmation');
     } catch (err) {
