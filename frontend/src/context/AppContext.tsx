@@ -199,7 +199,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
         dispatch({ type: 'SET_SCREEN', payload: 'login' });
         return;
       }
-      if (target === 'block-slots' && (!state.isLoggedIn || state.userRole !== 'admin')) {
+      if ((target === 'block-slots' || target === 'blocked-slots') && (!state.isLoggedIn || state.userRole !== 'admin')) {
         dispatch({ type: 'SET_SCREEN', payload: state.isLoggedIn ? 'sport-select' : 'login' });
         return;
       }
@@ -212,7 +212,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
   );
 
   const goBack = useCallback(() => {
-    const order: Screen[] = ['home', 'sport-select', 'block-slots', 'sport-events', 'facility-select', 'schedule', 'terms', 'login', 'forgot-password', 'checkout', 'booking-confirmation', 'bookings', 'profile', 'payment-test'];
+    const order: Screen[] = ['home', 'sport-select', 'block-slots', 'blocked-slots', 'sport-events', 'facility-select', 'schedule', 'terms', 'login', 'forgot-password', 'checkout', 'booking-confirmation', 'bookings', 'profile', 'payment-test'];
     const idx = order.indexOf(state.screen);
     if (idx <= 0) return;
 
