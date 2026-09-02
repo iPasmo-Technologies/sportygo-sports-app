@@ -1,12 +1,13 @@
 import { useEffect, useMemo, useState } from 'react';
-import { CalendarDays, CheckCircle2, Clock3, LockKeyhole, Mail, Pencil, Power, Repeat2, ShieldAlert } from 'lucide-react';
+import { CalendarDays, CheckCircle2, Clock3, Eye, LockKeyhole, Mail, Repeat2, ShieldAlert } from 'lucide-react';
 import ScreenHeader from '@/components/ScreenHeader';
 import ErrorBanner from '@/components/ErrorBanner';
 import Spinner from '@/components/Spinner';
+import ConfirmDialog from '@/components/ConfirmDialog';
 import { useApp } from '@/context/AppContext';
-import { blockSlotsForAdmin, createAdminRecurringBlocks, deactivateAdminRecurringBlock, fetchAdminBlockRules, fetchSportFacilities, fetchSports, updateAdminRecurringBlock } from '@/lib/api';
+import { blockSlotsForAdmin, createAdminRecurringBlocks, fetchSportFacilities, fetchSports } from '@/lib/api';
 import { announce } from '@/lib/utils';
-import type { AdminBlockRule, AdminBlockWeekday, AdminSlotBlockResponse, SportFacilityCard, SportId, SportOption } from '@/types';
+import type { AdminBlockWeekday, AdminSlotBlockResponse, SportFacilityCard, SportId, SportOption } from '@/types';
 
 const TIME_OPTIONS = Array.from({ length: 29 }, (_, index) => {
   const minutes = 8 * 60 + index * 30;
@@ -68,9 +69,7 @@ export default function BlockSlotBookingScreen() {
   const [selectedFacilityCode, setSelectedFacilityCode] = useState('');
   const [mode, setMode] = useState<'one-time' | 'recurring'>('one-time');
   const [weekdays, setWeekdays] = useState<AdminBlockWeekday[]>([]);
-  const [rules, setRules] = useState<AdminBlockRule[]>([]);
-  const [rulesLoading, setRulesLoading] = useState(true);
-  const [editingRule, setEditingRule] = useState<AdminBlockRule | null>(null);
+  const [confirmingBlock, setConfirmingBlock] = useState(false);
   const dates = useMemo(() => enumerateDates(startDate, endDate), [startDate, endDate]);
   const slotsPerDate = Math.max(0, (minutesFor(endTime) - minutesFor(startTime)) / 30);
   const estimatedSlots = dates.length * slotsPerDate;
@@ -108,38 +107,37 @@ export default function BlockSlotBookingScreen() {
       });
   }, [selectedSportId]);
 
-  useEffect(() => {
-    if (!state.authToken || state.userRole !== 'admin') return;
-    setRulesLoading(true);
-    fetchAdminBlockRules(state.authToken)
-      .then(({ rules: availableRules }) => setRules(availableRules))
-      .catch(() => setError('Unable to load existing block rules.'))
-      .finally(() => setRulesLoading(false));
-  }, [state.authToken, state.userRole]);
-
   const selectedSport = sports.find((sport) => sport.id === selectedSportId);
   const selectedFacility = facilities.find((facility) => facility.code === selectedFacilityCode);
 
   async function submitBlock() {
-    if (!state.authToken) return;
+    if (!state.authToken) {
+      setConfirmingBlock(false);
+      return;
+    }
     if (!selectedFacilityCode) {
       setError('Select a sport facility to block.');
+      setConfirmingBlock(false);
       return;
     }
     if (mode === 'one-time' && (dates.length === 0 || dates.length > 31)) {
       setError('Choose a valid date range of no more than 31 days.');
+      setConfirmingBlock(false);
       return;
     }
     if (mode === 'recurring' && (!startDate || !endDate || endDate < startDate || weekdays.length === 0)) {
       setError('Choose an effective date range and at least one weekday.');
+      setConfirmingBlock(false);
       return;
     }
     if (startTime >= endTime) {
       setError('End time must be later than start time.');
+      setConfirmingBlock(false);
       return;
     }
     if (!reason.trim()) {
       setError('Enter a reason for blocking these slots.');
+      setConfirmingBlock(false);
       return;
     }
 
@@ -148,28 +146,17 @@ export default function BlockSlotBookingScreen() {
     setResult(null);
     try {
       if (mode === 'recurring') {
-        const response = editingRule
-          ? await updateAdminRecurringBlock(editingRule.id, {
-              validFrom: startDate,
-              validTo: endDate,
-              weekday: weekdays[0],
-              startTime,
-              endTime,
-              reason: reason.trim(),
-            }, state.authToken)
-          : await createAdminRecurringBlocks({
-              sportId: selectedSportId,
-              facilityCode: selectedFacilityCode,
-              validFrom: startDate,
-              validTo: endDate,
-              weekdays,
-              startTime,
-              endTime,
-              reason: reason.trim(),
-            }, state.authToken);
-        setRules(response.rules);
-        setEditingRule(null);
-        announce(editingRule ? 'Recurring block rule updated.' : 'Recurring block rules created.');
+        await createAdminRecurringBlocks({
+          sportId: selectedSportId,
+          facilityCode: selectedFacilityCode,
+          validFrom: startDate,
+          validTo: endDate,
+          weekdays,
+          startTime,
+          endTime,
+          reason: reason.trim(),
+        }, state.authToken);
+        announce('Recurring block rules created.');
         return;
       }
       const response = await blockSlotsForAdmin({
@@ -186,8 +173,6 @@ export default function BlockSlotBookingScreen() {
         return;
       }
       setResult(response);
-      const rulesResponse = await fetchAdminBlockRules(state.authToken);
-      setRules(rulesResponse.rules);
       announce(`${response.blockedCount} slots blocked successfully.`);
     } catch (caught) {
       const message = caught instanceof Error ? caught.message : 'Unable to block slots.';
@@ -195,35 +180,7 @@ export default function BlockSlotBookingScreen() {
       announce(message);
     } finally {
       setSubmitting(false);
-    }
-  }
-
-  function editRule(rule: AdminBlockRule) {
-    if (!rule.editable || rule.ruleType !== 'recurring' || !rule.sportId || !rule.facilityCode) return;
-    setMode('recurring');
-    setEditingRule(rule);
-    setSelectedSportId(rule.sportId);
-    setSelectedFacilityCode(rule.facilityCode);
-    setStartDate(rule.validFrom ?? today);
-    setEndDate(rule.validTo ?? today);
-    setWeekdays(rule.weekdays.slice(0, 1));
-    setStartTime(rule.startTime);
-    setEndTime(rule.endTime);
-    setReason(rule.reason);
-    setError(null);
-    setResult(null);
-  }
-
-  async function deactivateRule(rule: AdminBlockRule) {
-    if (!state.authToken || !rule.editable || rule.ruleType !== 'recurring') return;
-    if (!window.confirm(`Deactivate the ${rule.reason} rule for ${rule.facilityTitle}?`)) return;
-    try {
-      const response = await deactivateAdminRecurringBlock(rule.id, state.authToken);
-      setRules(response.rules);
-      if (editingRule?.id === rule.id) setEditingRule(null);
-      announce('Recurring block rule deactivated.');
-    } catch (caught) {
-      setError(caught instanceof Error ? caught.message : 'Unable to deactivate block rule.');
+      setConfirmingBlock(false);
     }
   }
 
@@ -243,8 +200,8 @@ export default function BlockSlotBookingScreen() {
         </header>
 
         <div className="block-mode-switch" role="group" aria-label="Block rule type">
-          <button type="button" className={mode === 'one-time' ? 'active' : ''} onClick={() => { setMode('one-time'); setEditingRule(null); }}>One-time</button>
-          <button type="button" className={mode === 'recurring' ? 'active' : ''} onClick={() => { setMode('recurring'); setEditingRule(null); }}>Recurring</button>
+          <button type="button" className={mode === 'one-time' ? 'active' : ''} onClick={() => setMode('one-time')}>One-time</button>
+          <button type="button" className={mode === 'recurring' ? 'active' : ''} onClick={() => setMode('recurring')}>Recurring</button>
         </div>
 
         <section className="block-slots-section" aria-labelledby="block-facility-title">
@@ -254,12 +211,12 @@ export default function BlockSlotBookingScreen() {
           </div>
           <div className="block-slots-field-grid">
             <label className="block-slots-field">Sport
-              <select value={selectedSportId} disabled={editingRule !== null} onChange={(event) => setSelectedSportId(event.target.value as SportId)}>
+              <select value={selectedSportId} onChange={(event) => setSelectedSportId(event.target.value as SportId)}>
                 {sports.map((sport) => <option key={sport.id} value={sport.id}>{sport.label}</option>)}
               </select>
             </label>
             <label className="block-slots-field">Facility
-              <select value={selectedFacilityCode} disabled={facilities.length === 0 || editingRule !== null} onChange={(event) => setSelectedFacilityCode(event.target.value)}>
+              <select value={selectedFacilityCode} disabled={facilities.length === 0} onChange={(event) => setSelectedFacilityCode(event.target.value)}>
                 {facilities.length === 0 ? <option value="">No facilities available</option> : null}
                 {facilities.map((facility) => <option key={facility.id} value={facility.code}>{facility.title}</option>)}
               </select>
@@ -283,7 +240,6 @@ export default function BlockSlotBookingScreen() {
                   <input
                     type="checkbox"
                     checked={weekdays.includes(weekday.value)}
-                    disabled={editingRule !== null && weekdays[0] !== weekday.value}
                     onChange={(event) => setWeekdays((current) => event.target.checked
                       ? [...current, weekday.value]
                       : current.filter((value) => value !== weekday.value))}
@@ -329,47 +285,28 @@ export default function BlockSlotBookingScreen() {
           </div>
         ) : null}
 
-        <button className="block-slots-submit" type="button" disabled={submitting || !selectedFacilityCode || (mode === 'one-time' ? dates.length === 0 || dates.length > 31 || estimatedSlots <= 0 : weekdays.length === 0)} onClick={() => void submitBlock()}>
+        <button className="block-slots-submit" type="button" disabled={submitting || !selectedFacilityCode || (mode === 'one-time' ? dates.length === 0 || dates.length > 31 || estimatedSlots <= 0 : weekdays.length === 0)} onClick={() => setConfirmingBlock(true)}>
           {submitting ? <Spinner /> : mode === 'recurring' ? <Repeat2 size={18} /> : <LockKeyhole size={18} />}
-          {submitting ? 'Saving rule…' : editingRule ? 'Save recurring rule' : mode === 'recurring' ? 'Create recurring rule' : 'Confirm and block slots'}
+          {submitting ? 'Saving rule…' : mode === 'recurring' ? 'Create recurring rule' : 'Confirm and block slots'}
         </button>
 
-        <section className="block-rules" aria-labelledby="existing-block-rules-title">
-          <div className="block-rules-heading">
-            <div><small>Block management</small><h2 id="existing-block-rules-title">Existing block rules</h2></div>
-            <span>{rules.filter((rule) => rule.active).length} active</span>
-          </div>
-          {rulesLoading ? <div className="block-rules-loading"><Spinner /> Loading rules</div> : null}
-          {!rulesLoading && rules.length === 0 ? <p className="block-rules-empty">No block rules configured.</p> : null}
-          <div className="block-rule-list">
-            {rules.map((rule) => (
-              <article className={`block-rule-item${rule.active ? '' : ' inactive'}`} key={`${rule.ruleType}-${rule.id}`}>
-                <div className="block-rule-item-head">
-                  <div>
-                    <span className={`block-rule-kind ${rule.ruleType}`}>{rule.ruleType === 'recurring' ? 'Recurring' : 'One-time'}</span>
-                    <strong>{rule.facilityTitle}</strong>
-                  </div>
-                  <span className="block-rule-source">{rule.source === 'system-seed' ? 'Academy' : rule.source === 'legacy' ? 'Legacy' : 'Admin'}</span>
-                </div>
-                <p>{rule.reason}</p>
-                <dl>
-                  <div><dt>Dates</dt><dd>{rule.ruleType === 'recurring' ? `${rule.validFrom} to ${rule.validTo}` : `${rule.dates.length} selected`}</dd></div>
-                  <div><dt>When</dt><dd>{rule.ruleType === 'recurring' ? `${rule.weekdays[0]?.slice(0, 3)} · ` : ''}{rule.startTime}–{rule.endTime}</dd></div>
-                </dl>
-                <div className="block-rule-item-foot">
-                  <span className={rule.active ? 'active' : ''}>{rule.active ? 'Active' : 'Inactive'}</span>
-                  {rule.editable && rule.active ? (
-                    <div>
-                      <button type="button" onClick={() => editRule(rule)} aria-label={`Edit ${rule.reason} for ${rule.facilityTitle}`} title="Edit rule"><Pencil size={16} /></button>
-                      <button type="button" onClick={() => void deactivateRule(rule)} aria-label={`Deactivate ${rule.reason} for ${rule.facilityTitle}`} title="Deactivate rule"><Power size={16} /></button>
-                    </div>
-                  ) : <small>{rule.source === 'legacy' ? 'Read only' : ''}</small>}
-                </div>
-              </article>
-            ))}
-          </div>
-        </section>
+        <button className="block-slots-view" type="button" onClick={() => navigate('blocked-slots')}>
+          <Eye size={18} /> View Blocked Slots
+        </button>
       </main>
+      {confirmingBlock ? (
+        <ConfirmDialog
+          title={mode === 'recurring' ? 'Create recurring block?' : 'Block selected slots?'}
+          message={mode === 'recurring'
+            ? `${selectedFacility?.title ?? 'This facility'} will be unavailable on the selected weekdays from ${startDate} to ${endDate}, ${startTime} to ${endTime}.`
+            : `${selectedFacility?.title ?? 'This facility'} will have up to ${estimatedSlots} slots blocked from ${startDate} to ${endDate}, ${startTime} to ${endTime}.`}
+          confirmLabel={mode === 'recurring' ? 'Create Rule' : 'Confirm Block'}
+          busyLabel="Blocking..."
+          busy={submitting}
+          onCancel={() => setConfirmingBlock(false)}
+          onConfirm={() => void submitBlock()}
+        />
+      ) : null}
     </div>
   );
 }
