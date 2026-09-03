@@ -12,7 +12,8 @@ import {
   UserRound,
 } from 'lucide-react';
 import { useApp } from '@/context/AppContext';
-import { fetchProfile } from '@/lib/api';
+import { ApiError, fetchProfile } from '@/lib/api';
+import { clearRememberedAuth } from '@/lib/rememberedAuth';
 import { announce } from '@/lib/utils';
 import ScreenHeader from '@/components/ScreenHeader';
 import ErrorBanner from '@/components/ErrorBanner';
@@ -52,6 +53,12 @@ export default function ProfileScreen() {
       })
       .catch((err) => {
         if (cancelled) return;
+        if (err instanceof ApiError && (err.status === 401 || err.status === 404)) {
+          clearRememberedAuth();
+          dispatch({ type: 'LOG_OUT' });
+          announce('Your session is no longer active. Please log in again.');
+          return;
+        }
         const message = err instanceof Error ? err.message : 'Unable to load your profile right now.';
         setError(message);
       })
@@ -62,7 +69,7 @@ export default function ProfileScreen() {
     return () => {
       cancelled = true;
     };
-  }, [navigate, state.authToken]);
+  }, [dispatch, navigate, state.authToken]);
 
   function logOut() {
     dispatch({ type: 'LOG_OUT' });
@@ -148,10 +155,6 @@ export default function ProfileScreen() {
               </div>
             </section>
 
-            <button type="button" className="profile-logout" onClick={logOut}>
-              <LogOut size={19} /> Log Out
-            </button>
-
             {PAYMENT_TEST_PAGE_ENABLED && (
               <button type="button" className="profile-test-pay-btn"
                 onClick={() => navigate('payment-test')}>
@@ -161,6 +164,12 @@ export default function ProfileScreen() {
             )}
           </>
         ) : null}
+
+        {state.authToken && (
+          <button type="button" className="profile-logout" onClick={logOut}>
+            <LogOut size={19} /> Log Out
+          </button>
+        )}
       </main>
     </div>
   );
