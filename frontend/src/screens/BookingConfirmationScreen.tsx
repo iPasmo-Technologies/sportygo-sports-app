@@ -84,7 +84,7 @@ export default function BookingConfirmationScreen() {
   const timeLabel = state.selectedTime
     ? `${to12Hour(state.selectedTime)} - ${to12Hour(addMinutes(state.selectedTime, state.durationMins))} (${state.durationMins} min)`
     : 'Time not selected';
-  const displayReceipt = state.receiptId.replace(/-/g, '');
+  const displayReceipt = state.receiptId;
 
   // Mark WhatsApp mock sent once
   useEffect(() => {

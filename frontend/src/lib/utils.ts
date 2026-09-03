@@ -89,7 +89,7 @@ export function makeReceiptId(): string {
   const randomValues = new Uint8Array(6);
   crypto.getRandomValues(randomValues);
   const suffix = Array.from(randomValues, (value) => characters[value % characters.length]).join('');
-  return `SGO${year}${suffix}`;
+  return `SGO-${year}${suffix}`;
 }
 
 // ─── ARIA live announcer ─────────────────────────────────────
