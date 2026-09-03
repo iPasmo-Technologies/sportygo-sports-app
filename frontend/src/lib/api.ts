@@ -192,6 +192,13 @@ function buildFallbackSportFacilities(sportId: SportId): SportFacilitiesResponse
   return { sport, facilities };
 }
 
+export class ApiError extends Error {
+  constructor(message: string, public readonly status: number) {
+    super(message);
+    this.name = 'ApiError';
+  }
+}
+
 async function request<T>(
   path: string,
   options: RequestInit = {}
@@ -210,7 +217,7 @@ async function request<T>(
 
   if (!res.ok) {
     const body = await res.json().catch(() => ({}));
-    throw new Error((body as { error?: string }).error ?? `Request failed: ${res.status}`);
+    throw new ApiError((body as { error?: string }).error ?? `Request failed: ${res.status}`, res.status);
   }
 
   return res.json() as Promise<T>;
