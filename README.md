@@ -66,6 +66,126 @@ npm run dev
 
 6. Open the app at `http://localhost:5173`.
 
+## Slot Creation and Availability
+
+### How slots are generated
+
+Slots are generated lazily, per sport facility and requested date. They are not pre-created for a fixed calendar window during `db:seed`.
+
+1. The client requests `GET /api/slots` with a date, sport ID, and facility code.
+2. The API verifies that the sport/facility pair exists and is enabled.
+3. `listSlotsForDate` calls `ensureSlotsForDate` before returning availability.
+4. The application finds the operating window for the requested date. An exact-date availability exception takes precedence; otherwise it uses that facility's weekday configuration.
+5. It splits the resolved window into 30-minute segments. A window of `16:00` through `19:00`, for example, creates `16:00`, `16:30`, `17:00`, `17:30`, `18:00`, and `18:30`; `19:00` is the end boundary and is not itself a slot.
+6. Missing rows are inserted into `slots` with `is_booked = false`. Existing rows are preserved, and previously unbooked rows outside a changed configuration window are removed.
+7. Active recurring and one-time block rules are applied to those rows, then the API returns each slot with its current availability.
+
+The same `ensureSlotsForDate` operation also runs immediately before an admin blocks a date and before a booking or reschedule is committed. This guarantees that booking and blocking work even when nobody has previously viewed that date.
+
+### How far ahead slots exist
+
+There is **no built-in maximum number of days** for normal slot creation. A slot row is created the first time the system needs a configured date, whether that date is tomorrow or next year. A future date needs:
+
+- an enabled facility;
+- a weekday window in `slot_weekday_configurations` for that facility and weekday, or an exact-date record in `slot_availability_exceptions`; and
+- a valid calendar date supplied to the slot API or booking/blocking flow.
+
+The default seeded weekday schedule is `16:00-19:00` Monday through Friday and `08:00-19:00` on Saturday and Sunday. Individual 2026 exact-date overrides can expand selected facility windows to `08:00-19:00`.
+
+Past or already-started slots remain in the response but are labelled unavailable using the `Asia/Singapore` clock. The booking endpoint rejects those slots.
+
+### Trigger points
+
+| Trigger | What happens |
+| --- | --- |
+| `GET /api/slots` | Generates any missing rows for the requested facility/date and returns their availability. |
+| `POST /api/slots/block` | Generates missing rows for each selected date, marks the requested range unavailable, and records a one-time block rule. |
+| `POST /api/bookings` | Generates missing rows, locks every required 30-minute segment, and marks them booked in one database transaction. |
+| Booking reschedule | Generates the destination date's rows before checking and locking the replacement time range. |
+| `npm run db:seed` | Seeds configuration, facilities, 2026 exact-date exceptions, and 2026 Academy recurring rules. It does not generate a rolling range of `slots` rows. |
+| `npm run db:reset:seed` | Deletes slot rows and related seedable data, then restores configuration and seed rules. Slots are generated again on demand. |
+
+### Slot API details
+
+The API base path is `/api`. All times use 24-hour `HH:MM` notation and only 30-minute boundaries are accepted for blocking rules.
+
+#### List a facility's slots
+
+```http
+GET /api/slots?date=2027-01-04&sportId=cricket&facilityCode=net-2
+```
+
+No authentication is required. A successful response has this shape:
+
+```json
+{
+  "slots": [
+    {
+      "time": "16:00",
+      "key": "cricket_net-2_2027-01-04_16:00",
+      "booked": false,
+      "past": false
+    }
+  ]
+}
+```
+
+It returns `400` for missing/invalid parameters or a disabled facility and `422` when no weekday or exact-date configuration exists for the selected date.
+
+#### Create a one-time block
+
+```http
+POST /api/slots/block
+Authorization: Bearer <admin-jwt>
+Content-Type: application/json
+
+{
+  "sportId": "cricket",
+  "facilityCode": "net-2",
+  "dates": ["2027-01-04", "2027-01-05"],
+  "startTime": "16:00",
+  "endTime": "18:00",
+  "reason": "Private event"
+}
+```
+
+This endpoint requires an admin account. It accepts 1-31 unique current or future dates, blocks the half-open range from `startTime` up to but excluding `endTime`, stores the selected dates in a one-time `slot_block_rules` record, and returns `201` with the block ID and `blockedCount`. A best-effort email confirmation is sent when SMTP is configured.
+
+#### Manage recurring blocks
+
+- `GET /api/slots/blocks` lists one-time and recurring rules (admin JWT required).
+- `POST /api/slots/blocks/recurring` creates one rule per selected weekday. Required JSON fields are `sportId`, `facilityCode`, `validFrom`, `validTo`, `weekdays`, `startTime`, `endTime`, and `reason`.
+- `PUT /api/slots/blocks/recurring/:id` updates one active recurring rule.
+- `DELETE /api/slots/blocks/recurring/:id` soft-deactivates one active recurring rule.
+
+### Slot blocking behavior
+
+One-time blocks belong to one sport facility and explicit dates. When submitted, the system first materializes the affected dates and sets each currently unbooked matching 30-minute slot to `is_booked = true`. It also keeps the rule, so a later expansion of the availability window cannot expose a slot that was blocked earlier.
+
+Recurring blocks belong to one sport facility, an inclusive effective date range, selected weekday(s), and a time range. They are evaluated whenever that facility/date is generated. A row is blocked when its time is greater than or equal to the start time and less than the end time. Editing or deactivating a recurring rule clears rows marked specifically by recurring blocking; the normal availability check then reapplies any remaining booking, reservation, one-time, or recurring conflict.
+
+The availability response considers a slot unavailable when any of these apply:
+
+- the slot row was marked booked by a one-time or recurring block;
+- a confirmed or `cash_pending` booking overlaps the 30-minute segment;
+- another customer has an unexpired pending reservation for it; or
+- the slot is in the past or has already started in Singapore time.
+
+Blocks do not cancel existing bookings. A one-time block reports only the number of rows that were still unbooked when it was applied, so `blockedCount` can be lower than the requested number of segments.
+
+### Preparing slots for next year
+
+Ordinary slots for the next calendar year require no batch job: keep the weekday configurations active and request, block, or book the next-year date. For example, after configuration exists, `GET /api/slots?date=2027-01-04&sportId=cricket&facilityCode=net-2` creates its rows on demand.
+
+Use this annual checklist for year-specific availability and block-outs:
+
+1. Review every enabled facility's weekday schedule in `slot_weekday_configurations`. The seed creates all seven weekdays for every default facility, so this is normally already sufficient for the next year.
+2. Add new records to `slot_availability_exceptions` for dates whose opening window differs from their weekday schedule. The current seeded exception list is explicitly named `EXCEPTION_FACILITIES_2026`; it does not automatically carry into 2027.
+3. Create recurring Academy or operational block rules with `validFrom` and `validTo` covering the new year through `POST /api/slots/blocks/recurring`, or update the code seed data if those rules must be installed automatically in every environment. The supplied Academy seed rules run only from `2026-01-01` through `2026-12-31`.
+4. Add planned closures or special events with `POST /api/slots/block`. One request can cover up to 31 dates for one facility and time range.
+5. Verify representative weekday, weekend, exception, and blocked dates with `GET /api/slots`, confirming both the generated time range and the `booked` status.
+6. Run `cd backend && npm run db:smoke:slot-lock` against the configured database. Update its year-specific 2026 assertions before treating it as a 2027 regression check.
+
 ## Database Configuration (Easy Steps)
 
 ### Step 1: Create Neon project
@@ -182,13 +302,10 @@ Auth persistence:
 
 - login and Google sign-in now upsert the user in database when `DATABASE_URL` is configured
 
-Dev utility endpoint:
+Database reset utility:
 
-- `POST /api/dev/reset-seed` resets `bookings`, `slots`, `users`, `packages` and reseeds data
-- `npm run db:reset:seed` truncates seedable tables and repopulates them from the backend seed scripts
-- disabled automatically when `NODE_ENV=production`
-- if `DEV_RESET_TOKEN` is set, send header `x-dev-reset-token: <token>`
-- optional payload: `{ "days": 45 }` to control seed window (default 30, max 180)
+- `npm run db:reset:seed` is the supported reset operation. It truncates seedable tables, including `slots`, then repopulates schema configuration and seed rules. Slot rows are recreated on demand.
+- `POST /api/dev/reset-seed` is currently disabled in the source and must not be used for environment resets.
 
 ## Environment Variables
 
@@ -201,7 +318,6 @@ Dev utility endpoint:
 - `DATABASE_SSL` default `true`
 - `DATABASE_CONNECTION_TIMEOUT_MS` default `5000`
 - `DATABASE_POOL_MAX` default `10`
-- `DEV_RESET_TOKEN` optional protection for `/api/dev/reset-seed`
 - `STRIPE_SECRET_KEY` required for card checkout and booking confirmation
 - `STRIPE_CURRENCY` optional, defaults to `sgd`
 
@@ -244,7 +360,6 @@ DATABASE_URL=postgresql://<user>:<password>@<neon-host>/<db>?uselibpqcompat=true
 DATABASE_SSL=true
 DATABASE_CONNECTION_TIMEOUT_MS=5000
 DATABASE_POOL_MAX=10
-DEV_RESET_TOKEN=change-me
 STRIPE_SECRET_KEY=sk_test_your_stripe_secret_key
 STRIPE_CURRENCY=sgd
 ```
@@ -279,14 +394,7 @@ Local URLs:
 - Backend: `http://localhost:3001`
 - Health: `http://localhost:3001/api/health`
 
-Optional dev reset API:
-
-```http
-POST /api/dev/reset-seed
-x-dev-reset-token: <DEV_RESET_TOKEN>
-```
-
-This endpoint is intended for non-production only.
+To reset a local database, stop the backend and run `npm run db:reset:seed` from `backend/`.
 
 ### Production Deployment
 
@@ -313,8 +421,6 @@ DATABASE_POOL_MAX=20
 
 Production rules:
 
-- Do not expose `DEV_RESET_TOKEN` in production.
-- `/api/dev/reset-seed` is blocked automatically when `NODE_ENV=production`.
 - Store all secrets in platform secret manager, not in repository files.
 
 Frontend environment for production build:
