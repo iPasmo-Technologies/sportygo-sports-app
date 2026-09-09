@@ -4,6 +4,7 @@ import type {
   AdminBlockRulesResponse,
   AdminRecurringBlockPayload,
   AdminBlockWeekday,
+  AdminBookingsResponse,
   AdminUsersResponse,
   BookingCancellationResponse,
   BookingHistoryResponse,
@@ -566,6 +567,12 @@ export async function fetchMyBookings(token: string): Promise<BookingHistoryResp
     }
     throw error;
   }
+}
+
+export async function fetchAdminBookings(token: string): Promise<AdminBookingsResponse> {
+  return request<AdminBookingsResponse>('/api/bookings/admin', {
+    headers: { Authorization: `Bearer ${token}` },
+  });
 }
 
 export async function cancelMyBooking(

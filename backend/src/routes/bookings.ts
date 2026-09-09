@@ -1,6 +1,6 @@
 import { Router } from 'express';
-import { authMiddleware, type AuthenticatedRequest } from '../middleware/authMiddleware';
-import { BookingNotManageableError, cancelBooking, FacilityUnavailableError, listBookingsByCustomer, rescheduleBooking, saveBooking, SlotAlreadyBookedError, SlotConfigurationMissingError, type SportFacilityRow } from '../lib/database';
+import { authMiddleware, requireAdminRole, type AuthenticatedRequest } from '../middleware/authMiddleware';
+import { BookingNotManageableError, cancelBooking, FacilityUnavailableError, listAllBookingsForAdmin, listBookingsByCustomer, rescheduleBooking, saveBooking, SlotAlreadyBookedError, SlotConfigurationMissingError, type SportFacilityRow } from '../lib/database';
 import { getStripeClient, isStripeConfigured, toMinorCurrencyUnits } from '../lib/stripe';
 import { calculateBookingPricing } from '../lib/bookingPricing';
 import { type SportRow } from '../lib/database';
@@ -48,6 +48,15 @@ router.get('/', authMiddleware, async (req: AuthenticatedRequest, res) => {
 
   const bookings = await listBookingsByCustomer(normalizeEmail(email));
   res.json({ bookings });
+});
+
+router.get('/admin', authMiddleware, requireAdminRole, async (_req: AuthenticatedRequest, res) => {
+  try {
+    res.json({ bookings: await listAllBookingsForAdmin() });
+  } catch (error) {
+    console.error('[admin:bookings] Unable to list bookings.', error);
+    res.status(500).json({ error: 'Unable to load bookings at the moment. Please try again.' });
+  }
 });
 
 router.delete('/:receiptId', authMiddleware, async (req: AuthenticatedRequest, res) => {

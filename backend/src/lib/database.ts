@@ -95,6 +95,23 @@ export type BookingHistoryRow = {
   facilityTag: string | null;
 };
 
+export type AdminBookingRow = {
+  facilityTitle: string | null;
+  facilityAddress: string | null;
+  slotDate: string;
+  slotTime: string;
+  durationMins: number;
+  grandTotal: number;
+  payMethod: string;
+  receiptId: string;
+  customerEmail: string;
+  createdBy: string;
+  packageId: string | null;
+  status: BookingHistoryRow['status'];
+  createdAt: string;
+  updatedAt: string;
+};
+
 type BookingInput = {
   bookingType: string;
   sportId?: SportRow['id'] | null;
@@ -2072,6 +2089,32 @@ export async function listBookingsByCustomer(customerEmail: string): Promise<Boo
        AND LOWER(BTRIM(booking.customer_email)) = $1
      ORDER BY booking.slot_date DESC, booking.slot_time DESC`,
     [normalizedCustomerEmail]
+  );
+}
+
+export async function listAllBookingsForAdmin(): Promise<AdminBookingRow[]> {
+  if (!pool) {
+    return [];
+  }
+
+  return query<AdminBookingRow>(
+      `SELECT booking.facility_title AS "facilityTitle",
+        booking.facility_address AS "facilityAddress",
+            booking.slot_date::text AS "slotDate",
+            booking.slot_time::text AS "slotTime",
+            booking.duration_mins AS "durationMins",
+            booking.grand_total::float8 AS "grandTotal",
+            booking.pay_method AS "payMethod",
+            booking.receipt_id AS "receiptId",
+            booking.customer_email AS "customerEmail",
+            booking.created_by AS "createdBy",
+            booking.package_id AS "packageId",
+                 booking.status,
+                 booking.created_at::text AS "createdAt",
+                 booking.updated_at::text AS "updatedAt"
+     FROM bookings AS booking
+     WHERE booking.deleted_at IS NULL
+     ORDER BY booking.slot_date DESC, booking.slot_time DESC, booking.created_at DESC`
   );
 }
 
