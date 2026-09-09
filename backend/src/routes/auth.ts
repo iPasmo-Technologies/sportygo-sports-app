@@ -1,9 +1,9 @@
 import { Router } from 'express';
 import jwt from 'jsonwebtoken';
-import { completePasswordReset, countUsersByMobileNumber, createUserPasswordAccount, findUserByEmail, findUserByEmailOrMobile, savePasswordResetCode, verifyPasswordResetCode } from '../lib/database';
+import { completePasswordReset, countUsersByMobileNumber, createUserPasswordAccount, extendPasswordResetExpiry, findUserByEmail, findUserByEmailOrMobile, listAllUsersForAdmin, savePasswordResetCode, verifyPasswordResetCode } from '../lib/database';
 import { decryptClientPasswordPayload, decryptPasswordAtRest, encryptPasswordAtRest } from '../lib/authCrypto';
 import { sendPasswordResetPasscode, sendWelcomeEmail } from '../lib/email';
-import { authMiddleware, type AuthenticatedRequest } from '../middleware/authMiddleware';
+import { authMiddleware, requireAdminRole, type AuthenticatedRequest } from '../middleware/authMiddleware';
 
 const router = Router();
 
@@ -40,6 +40,64 @@ router.get('/profile', authMiddleware, async (req: AuthenticatedRequest, res) =>
     email: user.email,
     mobileNumber: user.mobileNumber,
   });
+});
+
+// GET /api/auth/users — admin-only directory of registered user accounts.
+router.get('/users', authMiddleware, requireAdminRole, async (_req: AuthenticatedRequest, res) => {
+  try {
+    const users = await listAllUsersForAdmin();
+    res.json({ users });
+  } catch (error) {
+    console.error('[admin:users] Unable to list users.', error);
+    res.status(500).json({ error: 'Unable to load users at the moment. Please try again.' });
+  }
+});
+
+// POST /api/auth/users/resend-passcode — admin-only resend of a user's existing reset passcode email.
+router.post('/users/resend-passcode', authMiddleware, requireAdminRole, async (req: AuthenticatedRequest, res) => {
+  const { email } = req.body as { email?: string };
+  const normalizedEmail = normalizeEmail(email ?? '');
+
+  if (!normalizedEmail || !EMAIL_RE.test(normalizedEmail)) {
+    res.status(400).json({ error: 'A valid email address is required.' });
+    return;
+  }
+
+  const user = await findUserByEmail(normalizedEmail);
+  if (!user?.passwordResetCode) {
+    res.status(404).json({ error: 'No active reset passcode found for this user.' });
+    return;
+  }
+
+  try {
+    await sendPasswordResetPasscode({ email: normalizedEmail, code: user.passwordResetCode });
+  } catch (error) {
+    console.error(`[admin:users] Resend passcode email failed for ${maskEmail(normalizedEmail)}`, error);
+    res.status(500).json({ error: 'Unable to send passcode email. Please try again.' });
+    return;
+  }
+
+  res.json({ message: 'Passcode email sent successfully.' });
+});
+
+// POST /api/auth/users/extend-passcode — admin-only extension of a user's reset passcode expiry by 15 minutes.
+router.post('/users/extend-passcode', authMiddleware, requireAdminRole, async (req: AuthenticatedRequest, res) => {
+  const { email } = req.body as { email?: string };
+  const normalizedEmail = normalizeEmail(email ?? '');
+
+  if (!normalizedEmail || !EMAIL_RE.test(normalizedEmail)) {
+    res.status(400).json({ error: 'A valid email address is required.' });
+    return;
+  }
+
+  const expiresAt = new Date(Date.now() + 15 * 60 * 1000).toISOString();
+  const updated = await extendPasswordResetExpiry(normalizedEmail, expiresAt);
+  if (!updated) {
+    res.status(404).json({ error: 'No active reset passcode found for this user.' });
+    return;
+  }
+
+  res.json({ message: 'Passcode expiry extended by 15 minutes.' });
 });
 
 router.post('/register', async (req, res) => {

@@ -143,6 +143,13 @@ export type UserAuthRow = {
   passwordResetExpiresAt?: string | null;
 };
 
+export type AdminUserRow = {
+  fullName: string;
+  email: string;
+  mobileNumber: string;
+  passwordResetCode: string | null;
+};
+
 export type AdminSlotBlockResult = {
   blockId: string;
   sportId: SportRow['id'];
@@ -2314,6 +2321,27 @@ export async function findUserByEmail(email: string): Promise<UserAuthRow | null
   return rows[0] ?? null;
 }
 
+export async function listAllUsersForAdmin(): Promise<AdminUserRow[]> {
+  if (!pool) {
+    return [...fallbackUsers.values()].map((user) => ({
+      fullName: user.fullName,
+      email: user.email,
+      mobileNumber: user.mobileNumber,
+      passwordResetCode: user.passwordResetCode ?? null,
+    }));
+  }
+
+  return query<AdminUserRow>(
+    `SELECT full_name AS "fullName",
+            email,
+            mobile_number AS "mobileNumber",
+            password_reset_code AS "passwordResetCode"
+     FROM users
+     WHERE deleted_at IS NULL
+     ORDER BY full_name ASC, email ASC`
+  );
+}
+
 export async function findUserByEmailOrMobile(loginId: string): Promise<UserAuthRow | null> {
   const normalizedLoginId = loginId.trim().toLowerCase();
 
@@ -2531,6 +2559,43 @@ export async function savePasswordResetCode(input: {
                auth_provider AS "authProvider",
                role`,
     [normalizedEmail, input.code, input.expiresAtIso]
+  );
+
+  return rows[0] ?? null;
+}
+
+export async function extendPasswordResetExpiry(email: string, expiresAtIso: string): Promise<UserAuthRow | null> {
+  const normalizedEmail = email.trim().toLowerCase();
+
+  if (!pool) {
+    const existing = fallbackUsers.get(normalizedEmail);
+    if (!existing?.passwordResetCode) {
+      return null;
+    }
+
+    const updated: UserAuthRow = { ...existing, passwordResetExpiresAt: expiresAtIso };
+    fallbackUsers.set(normalizedEmail, updated);
+    return updated;
+  }
+
+  const rows = await query<UserAuthRow>(
+    `UPDATE users
+     SET password_reset_expires_at = $2::timestamptz,
+         updated_at = NOW(),
+         updated_by = email
+     WHERE deleted_at IS NULL
+       AND LOWER(email) = LOWER($1)
+       AND password_reset_code IS NOT NULL
+     RETURNING id,
+               email,
+               full_name AS "fullName",
+               mobile_number AS "mobileNumber",
+               password_encrypted AS "passwordEncrypted",
+               password_reset_code AS "passwordResetCode",
+               password_reset_expires_at::text AS "passwordResetExpiresAt",
+               auth_provider AS "authProvider",
+               role`,
+    [normalizedEmail, expiresAtIso]
   );
 
   return rows[0] ?? null;

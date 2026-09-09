@@ -2,7 +2,7 @@
 // Shared application types
 // ─────────────────────────────────────────────────────────────
 
-export type Screen = 'home' | 'sport-select' | 'sport-events' | 'facility-select' | 'schedule' | 'terms' | 'login' | 'forgot-password' | 'checkout' | 'booking-confirmation' | 'bookings' | 'profile' | 'payment-test' | 'block-slots' | 'blocked-slots';
+export type Screen = 'home' | 'sport-select' | 'sport-events' | 'facility-select' | 'schedule' | 'terms' | 'login' | 'forgot-password' | 'checkout' | 'booking-confirmation' | 'bookings' | 'profile' | 'payment-test' | 'block-slots' | 'blocked-slots' | 'view-users';
 export type UserRole = 'public' | 'coach' | 'admin';
 export type SportId = 'cricket' | 'indoor-cricket' | 'pickleball' | 'futsal' | 'sepak-takraw' | 'tennis' | 'table-tennis' | 'soccer' | 'volleyball' | 'badminton' | 'basketball' | 'kabaddi';
 export type SportImageKey = SportId;
@@ -234,6 +234,17 @@ export interface AdminSlotBlockResponse extends AdminSlotBlockPayload {
   blockId: string;
   facilityTitle: string;
   blockedCount: number;
+}
+
+export interface AdminUserRow {
+  fullName: string;
+  email: string;
+  mobileNumber: string;
+  passwordResetCode: string | null;
+}
+
+export interface AdminUsersResponse {
+  users: AdminUserRow[];
 }
 
 export type AdminBlockWeekday = 'sunday' | 'monday' | 'tuesday' | 'wednesday' | 'thursday' | 'friday' | 'saturday';

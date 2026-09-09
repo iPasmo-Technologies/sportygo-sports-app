@@ -4,6 +4,7 @@ import type {
   AdminBlockRulesResponse,
   AdminRecurringBlockPayload,
   AdminBlockWeekday,
+  AdminUsersResponse,
   BookingCancellationResponse,
   BookingHistoryResponse,
   BookingPayload,
@@ -318,6 +319,28 @@ export async function blockSlotsForAdmin(
 export async function fetchAdminBlockRules(token: string): Promise<AdminBlockRulesResponse> {
   return request<AdminBlockRulesResponse>('/api/slots/blocks', {
     headers: { Authorization: `Bearer ${token}` },
+  });
+}
+
+export async function fetchAdminUsers(token: string): Promise<AdminUsersResponse> {
+  return request<AdminUsersResponse>('/api/auth/users', {
+    headers: { Authorization: `Bearer ${token}` },
+  });
+}
+
+export async function resendUserPasscode(email: string, token: string): Promise<{ message: string }> {
+  return request<{ message: string }>('/api/auth/users/resend-passcode', {
+    method: 'POST',
+    headers: { Authorization: `Bearer ${token}` },
+    body: JSON.stringify({ email }),
+  });
+}
+
+export async function extendUserPasscodeExpiry(email: string, token: string): Promise<{ message: string }> {
+  return request<{ message: string }>('/api/auth/users/extend-passcode', {
+    method: 'POST',
+    headers: { Authorization: `Bearer ${token}` },
+    body: JSON.stringify({ email }),
   });
 }
 
