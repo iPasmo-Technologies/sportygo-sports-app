@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
-import { CalendarX2, Menu } from 'lucide-react';
+import { CalendarX2, Menu, Users } from 'lucide-react';
 import { useApp, useSelectBookingType } from '@/context/AppContext';
 import { announce } from '@/lib/utils';
 import ScreenHeader from '@/components/ScreenHeader';
@@ -160,6 +160,17 @@ export default function SportSelectScreen() {
                   >
                     <CalendarX2 size={19} strokeWidth={2.2} aria-hidden="true" />
                     <span>Block Slots</span>
+                  </button>
+                  <button
+                    type="button"
+                    role="menuitem"
+                    onClick={() => {
+                      setAdminMenuOpen(false);
+                      navigate('view-users');
+                    }}
+                  >
+                    <Users size={19} strokeWidth={2.2} aria-hidden="true" />
+                    <span>View Users</span>
                   </button>
                 </div>
               ) : null}

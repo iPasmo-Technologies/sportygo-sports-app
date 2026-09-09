@@ -344,6 +344,78 @@ npx wrangler secret put SMTP_FROM
 
 If the Container adapter passes secrets through `envVars`, ensure the Worker configuration does so securely and verify the current Containers secret/environment-variable mechanism before production. Never print secret values in build logs.
 
+### Rotating `DATABASE_URL` and other Container secrets
+
+Changing a secret in **Worker Settings -> Variables and Secrets** deploys a new Worker version, but it does not necessarily restart existing Container instances. This distinction matters for this backend:
+
+- The Worker reads `env.DATABASE_URL` and passes it through the Container class `envVars` field.
+- A Container receives those environment variables when its process starts.
+- The Express backend reads `process.env.DATABASE_URL` once at module startup and creates a long-lived PostgreSQL pool.
+- The named `api` Container uses `sleepAfter = '10m'`. Incoming requests reset that idle timer, so a busy instance may continue running indefinitely with its previous database connection pool.
+
+Consequently, a successful secret-only deployment can leave the API connected to the old database. Waiting is sufficient only if every old instance becomes idle for at least 10 minutes and restarts. After an actual restart, allow approximately 1-5 minutes for the replacement instance to become healthy. For production changes, explicitly roll out replacement instances instead of relying on the idle timer.
+
+#### Verify the secret deployment without exposing its value
+
+Run these commands from `cloudflare/backend-worker/`:
+
+```powershell
+npx wrangler secret list
+npx wrangler deployments list
+npx wrangler containers list
+```
+
+Confirm all of the following:
+
+1. `DATABASE_URL` appears in `secret list` as `secret_text`.
+2. The latest Worker deployment message records the secret update.
+3. The Container application's **Last modified** time is later than the secret update.
+
+`wrangler secret list` shows names and types only; Cloudflare does not reveal stored secret values. If the Worker deployment is newer than the Container application's **Last modified** time, the Worker has the new secret but live Container processes may still have the old value.
+
+#### Bring down old Container instances with a forced rollout
+
+The preferred production procedure is to replace old instances through a Container rollout. Do not delete the Container application; deletion removes the application rather than safely refreshing its running processes.
+
+1. Update the cache-bust label in `Dockerfile.backend` to a new unique value:
+
+  ```dockerfile
+  LABEL rebuild="YYYY-MM-DD-database-url-rotation"
+  ```
+
+2. Commit and push the label change to the configured production branch, currently `main`. Workers Builds must use `npx wrangler deploy`, not `npx wrangler versions upload`.
+3. For the shortest replacement window, deploy manually from the repository root with an immediate rollout:
+
+  ```powershell
+  npx wrangler deploy --containers-rollout=immediate --config cloudflare/backend-worker/wrangler.jsonc
+  ```
+
+  The changed image label produces a new image digest. `--containers-rollout=immediate` targets 100% of old instances for replacement in one rollout step. Cloudflare sends `SIGTERM`, drains each selected process, and starts a replacement with the current Worker secrets.
+
+4. Monitor the application and its instances:
+
+  ```powershell
+  npx wrangler containers list --config cloudflare/backend-worker/wrangler.jsonc
+  npx wrangler containers instances <CONTAINER_APPLICATION_ID> --config cloudflare/backend-worker/wrangler.jsonc
+  ```
+
+5. Wait until the application shows a new **Last modified** time and replacement instances are healthy. This normally takes several minutes, but deployment completion means the rollout started; it does not guarantee that every replacement has finished.
+6. Send a request that reaches the database and verify known production-only data. `GET /api/health` proves that the API responds, but a database-backed operation is required to confirm the target database changed.
+
+An alternative for a quiet non-production environment is to stop all traffic and wait longer than `sleepAfter` (currently 10 minutes). The default `onActivityExpired()` behavior stops an idle process, and its next request starts it with current secrets. This is less deterministic and is not the recommended production procedure.
+
+Do not add an unauthenticated HTTP endpoint that calls the Container `stop()` or `destroy()` methods. If explicit per-instance lifecycle control is ever added, protect it with administrator authentication and a separate operational secret.
+
+Official references:
+
+- [Cloudflare Containers environment variables and secrets](https://developers.cloudflare.com/containers/examples/env-vars-and-secrets/)
+- [Cloudflare Container rollouts](https://developers.cloudflare.com/containers/configuration/rollouts/)
+- [Cloudflare Container interface: start and stop](https://developers.cloudflare.com/containers/reference/container-class/#start-and-stop)
+
+#### Database readiness after switching URLs
+
+Updating `DATABASE_URL` does not migrate or seed the new database. Before switching production traffic, run the required migration against the new connection string from a trusted machine or CI job, then verify permissions for the application database user. Keep local `backend/.env` values separate from Cloudflare runtime secrets; editing the local file does not update a deployed Worker or Container.
+
 ## 9. Neon PostgreSQL setup
 
 1. Sign in to Neon and create or select the production project.
