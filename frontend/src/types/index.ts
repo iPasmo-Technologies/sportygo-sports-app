@@ -2,7 +2,7 @@
 // Shared application types
 // ─────────────────────────────────────────────────────────────
 
-export type Screen = 'home' | 'sport-select' | 'sport-events' | 'facility-select' | 'schedule' | 'terms' | 'login' | 'forgot-password' | 'checkout' | 'booking-confirmation' | 'bookings' | 'profile' | 'payment-test' | 'block-slots' | 'blocked-slots' | 'view-users';
+export type Screen = 'home' | 'sport-select' | 'sport-events' | 'facility-select' | 'schedule' | 'terms' | 'login' | 'forgot-password' | 'checkout' | 'booking-confirmation' | 'bookings' | 'profile' | 'payment-test' | 'block-slots' | 'blocked-slots' | 'view-users' | 'admin-bookings';
 export type UserRole = 'public' | 'coach' | 'admin';
 export type SportId = 'cricket' | 'indoor-cricket' | 'pickleball' | 'futsal' | 'sepak-takraw' | 'tennis' | 'table-tennis' | 'soccer' | 'volleyball' | 'badminton' | 'basketball' | 'kabaddi';
 export type SportImageKey = SportId;
@@ -326,6 +326,27 @@ export interface BookingHistoryItem {
 
 export interface BookingHistoryResponse {
   bookings: BookingHistoryItem[];
+}
+
+export interface AdminBookingItem {
+  facilityTitle: string | null;
+  facilityAddress: string | null;
+  slotDate: string;
+  slotTime: string;
+  durationMins: number;
+  grandTotal: number;
+  payMethod: string;
+  receiptId: string;
+  customerEmail: string;
+  createdBy: string;
+  packageId: string | null;
+  status: 'confirmed' | 'cash_pending' | 'cancelled';
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface AdminBookingsResponse {
+  bookings: AdminBookingItem[];
 }
 
 export interface BookingCancellationResponse {

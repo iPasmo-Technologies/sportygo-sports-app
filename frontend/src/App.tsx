@@ -18,13 +18,14 @@ import PaymentTestScreen from '@/screens/PaymentTestScreen';
 import BlockSlotBookingScreen from '@/screens/BlockSlotBookingScreen';
 import ViewBlockedSlotsScreen from '@/screens/ViewBlockedSlotsScreen';
 import ViewUsersScreen from '@/screens/ViewUsersScreen';
+import AdminBookingsScreen from '@/screens/AdminBookingsScreen';
 import InstallAppPrompt from '@/components/InstallAppPrompt';
 
 export default function App() {
   const { state, navigate } = useApp();
-  const isImmersiveScreen = state.screen === 'home' || state.screen === 'sport-select' || state.screen === 'sport-events' || state.screen === 'facility-select' || state.screen === 'schedule' || state.screen === 'terms' || state.screen === 'login' || state.screen === 'forgot-password' || state.screen === 'checkout' || state.screen === 'booking-confirmation' || state.screen === 'bookings' || state.screen === 'profile' || state.screen === 'payment-test' || state.screen === 'block-slots' || state.screen === 'blocked-slots' || state.screen === 'view-users';
-  const topAlignedImmersive = state.screen === 'schedule' || state.screen === 'terms' || state.screen === 'forgot-password' || state.screen === 'checkout' || state.screen === 'booking-confirmation' || state.screen === 'bookings' || state.screen === 'profile' || state.screen === 'payment-test' || state.screen === 'block-slots' || state.screen === 'blocked-slots' || state.screen === 'view-users';
-  const showBottomNav = state.screen !== 'home' && state.screen !== 'login' && state.screen !== 'forgot-password' && state.screen !== 'block-slots' && state.screen !== 'blocked-slots' && state.screen !== 'view-users';
+  const isImmersiveScreen = state.screen === 'home' || state.screen === 'sport-select' || state.screen === 'sport-events' || state.screen === 'facility-select' || state.screen === 'schedule' || state.screen === 'terms' || state.screen === 'login' || state.screen === 'forgot-password' || state.screen === 'checkout' || state.screen === 'booking-confirmation' || state.screen === 'bookings' || state.screen === 'profile' || state.screen === 'payment-test' || state.screen === 'block-slots' || state.screen === 'blocked-slots' || state.screen === 'view-users' || state.screen === 'admin-bookings';
+  const topAlignedImmersive = state.screen === 'schedule' || state.screen === 'terms' || state.screen === 'forgot-password' || state.screen === 'checkout' || state.screen === 'booking-confirmation' || state.screen === 'bookings' || state.screen === 'profile' || state.screen === 'payment-test' || state.screen === 'block-slots' || state.screen === 'blocked-slots' || state.screen === 'view-users' || state.screen === 'admin-bookings';
+  const showBottomNav = state.screen !== 'home' && state.screen !== 'login' && state.screen !== 'forgot-password' && state.screen !== 'block-slots' && state.screen !== 'blocked-slots' && state.screen !== 'view-users' && state.screen !== 'admin-bookings';
   const activeBottomItem = state.screen === 'home'
     ? 'home'
     : state.screen === 'sport-select' || state.screen === 'sport-events' || state.screen === 'facility-select'
@@ -56,6 +57,7 @@ export default function App() {
       {state.screen === 'block-slots' && <BlockSlotBookingScreen />}
       {state.screen === 'blocked-slots' && <ViewBlockedSlotsScreen />}
       {state.screen === 'view-users' && <ViewUsersScreen />}
+      {state.screen === 'admin-bookings' && <AdminBookingsScreen />}
 
       {showBottomNav && (
         <BottomIconNav
