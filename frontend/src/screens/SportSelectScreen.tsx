@@ -3,6 +3,7 @@ import { BookOpenCheck, CalendarX2, Menu, Users } from 'lucide-react';
 import { useApp, useSelectBookingType } from '@/context/AppContext';
 import { announce } from '@/lib/utils';
 import ScreenHeader from '@/components/ScreenHeader';
+import Spinner from '@/components/Spinner';
 import selectSportBackground from '@/assets/select_sport_bk.png';
 import cricketCard from '@/assets/card_cricket.png';
 import indoorCricketCard from '@/assets/card_indoor_cricket.png';
@@ -16,7 +17,6 @@ import volleyballCard from '@/assets/card_volley_ball.png';
 import badmintonCard from '@/assets/card_badminton.png';
 import basketballCard from '@/assets/card_basket_ball.png';
 import kabaddiCard from '@/assets/card_kabaddi.png';
-import fallbackSports from '@/data/json/sports.json';
 import { fetchSports } from '@/lib/api';
 import type { SportId, SportOption } from '@/types';
 
@@ -54,32 +54,33 @@ function toSportTiles(sports: SportOption[]): SportTile[] {
 export default function SportSelectScreen() {
   const { navigate, dispatch, state } = useApp();
   const selectType = useSelectBookingType();
-  const fallbackSportTiles = toSportTiles(fallbackSports as SportOption[]);
-  const [sports, setSports] = useState<SportTile[]>(() => fallbackSportTiles);
+  const [sports, setSports] = useState<SportTile[]>([]);
+  const [loadingSports, setLoadingSports] = useState(true);
+  const [sportsError, setSportsError] = useState<string | null>(null);
+  const [sportsRequestVersion, setSportsRequestVersion] = useState(0);
   const [adminMenuOpen, setAdminMenuOpen] = useState(false);
   const adminMenuRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
     let active = true;
+    setLoadingSports(true);
+    setSportsError(null);
 
     fetchSports()
       .then((response) => {
-        if (!active || response.sports.length === 0) {
-          return;
-        }
-
-        setSports(toSportTiles(response.sports));
+        if (active) setSports(toSportTiles(response.sports));
       })
-      .catch(() => {
-        if (active) {
-          setSports(fallbackSportTiles);
-        }
+      .catch((caught) => {
+        if (active) setSportsError(caught instanceof Error ? caught.message : 'Unable to load sports.');
+      })
+      .finally(() => {
+        if (active) setLoadingSports(false);
       });
 
     return () => {
       active = false;
     };
-  }, []);
+  }, [sportsRequestVersion]);
 
   useEffect(() => {
     if (!adminMenuOpen) return;
@@ -203,6 +204,9 @@ export default function SportSelectScreen() {
         </div>
 
         <div className="sport-grid" role="list" aria-label="Sports">
+          {loadingSports ? <div className="catalog-state"><Spinner variant="muted" /><span>Loading sports...</span></div> : null}
+          {!loadingSports && sportsError ? <div className="catalog-state"><strong>Sports are unavailable</strong><span>{sportsError}</span><button type="button" onClick={() => setSportsRequestVersion((version) => version + 1)}>Retry</button></div> : null}
+          {!loadingSports && !sportsError && sports.length === 0 ? <div className="catalog-state"><strong>No sports available</strong><span>Please check again later.</span></div> : null}
           {sports.map((sport) => (
             <button
               type="button"

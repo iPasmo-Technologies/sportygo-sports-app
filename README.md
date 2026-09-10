@@ -324,6 +324,7 @@ Database reset utility:
 ### Frontend (`frontend/.env.local`)
 
 - `VITE_API_BASE_URL` optional, defaults to proxy in local dev
+- `VITE_ENABLE_CATALOG_FALLBACK` optional, defaults to `false`; set to `true` only for an emergency/demo fallback on Sport Select and Sport Events when the API is unavailable
 - `VITE_STRIPE_PUBLISHABLE_KEY` required for Stripe card checkout in the browser
 
 ## Stripe card payments

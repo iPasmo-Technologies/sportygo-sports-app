@@ -4,17 +4,16 @@ import { useApp } from '@/context/AppContext';
 import { announce } from '@/lib/utils';
 import ScreenHeader from '@/components/ScreenHeader';
 import BookingStepBar from '@/components/BookingStepBar';
+import Spinner from '@/components/Spinner';
 import selectSportBackground from '@/assets/select_sport_bk.png';
 import cricketFacility from '@/assets/cricket_facility.png';
 import bowlingLaneCard from '@/assets/bowling_lane.png';
 import cricketNetsCard from '@/assets/cricket_nets.png';
 import indoorCourtCard from '@/assets/indoor_court.png';
-import fallbackSports from '@/data/json/sports.json';
-import fallbackSportFacilities from '@/data/json/sport-facilities.json';
 import pickleballIndoorCourt from '@/assets/pb-indoor-court.png';
 import pickleballOutdoorCourt from '@/assets/pb-outdoor-court.png';
 import { fetchSportFacilities } from '@/lib/api';
-import type { SportFacilitiesResponse, SportFacilityCard, SportFacilityTemplate, SportId, SportOption } from '@/types';
+import type { SportFacilitiesResponse, SportFacilityCard } from '@/types';
 
 const FACILITY_IMAGES: Record<SportFacilityCard['imageKey'], string> = {
   'bowling-lane': bowlingLaneCard,
@@ -26,35 +25,6 @@ const FACILITY_IMAGES: Record<SportFacilityCard['imageKey'], string> = {
   'pb-indoor-court': pickleballIndoorCourt,
   'pb-outdoor-court': pickleballOutdoorCourt,
 };
-
-function resolveTemplate(template: string, sportLabel: string): string {
-  return template
-    .replace(/\{sportLower\}/g, sportLabel.toLowerCase())
-    .replace(/\{sport\}/g, sportLabel);
-}
-
-function buildFallbackFacilityPage(sportId: SportId): SportFacilitiesResponse {
-  const sport = (fallbackSports as SportOption[]).find((item) => item.id === sportId) ?? (fallbackSports as SportOption[])[0];
-  const facilities = (fallbackSportFacilities as SportFacilityTemplate[])
-    .filter((facility) => facility.sportId === sport.id)
-    .map((facility) => ({
-    id: `${sport.id}-${facility.code}`,
-    sportId: sport.id,
-    code: facility.code,
-    title: resolveTemplate(facility.titleTemplate, sport.label),
-    price: facility.price,
-    tag: facility.tag,
-    address: facility.address,
-    mapLocationUrl: facility.mapLocationUrl,
-    imageKey: facility.imageKey,
-    icon: facility.icon,
-    actionTarget: facility.actionTarget,
-    enabled: facility.enabled,
-    sortOrder: facility.sortOrder,
-    }));
-
-  return { sport, facilities };
-}
 
 function FacilityIcon({ kind }: { kind: SportFacilityCard['icon'] }) {
   if (kind === 'lane') return <Star size={20} strokeWidth={2.3} />;
@@ -68,10 +38,16 @@ function FacilityIcon({ kind }: { kind: SportFacilityCard['icon'] }) {
 export default function SportFacilityScreen() {
   const { navigate, state, dispatch } = useApp();
   const selectedSport = state.selectedSport ?? 'cricket';
-  const [facilityPage, setFacilityPage] = useState<SportFacilitiesResponse>(() => buildFallbackFacilityPage(selectedSport));
+  const [facilityPage, setFacilityPage] = useState<SportFacilitiesResponse | null>(null);
+  const [loadingFacilities, setLoadingFacilities] = useState(true);
+  const [facilitiesError, setFacilitiesError] = useState<string | null>(null);
+  const [facilitiesRequestVersion, setFacilitiesRequestVersion] = useState(0);
 
   useEffect(() => {
     let active = true;
+    setFacilityPage(null);
+    setLoadingFacilities(true);
+    setFacilitiesError(null);
 
     fetchSportFacilities(selectedSport)
       .then((response) => {
@@ -79,19 +55,20 @@ export default function SportFacilityScreen() {
           setFacilityPage(response);
         }
       })
-      .catch(() => {
-        if (active) {
-          setFacilityPage(buildFallbackFacilityPage(selectedSport));
-        }
+      .catch((caught) => {
+        if (active) setFacilitiesError(caught instanceof Error ? caught.message : 'Unable to load facilities.');
+      })
+      .finally(() => {
+        if (active) setLoadingFacilities(false);
       });
 
     return () => {
       active = false;
     };
-  }, [selectedSport]);
+  }, [facilitiesRequestVersion, selectedSport]);
 
-  const sportLabel = facilityPage.sport.label;
-  const facilityCards = facilityPage.facilities;
+  const sportLabel = facilityPage?.sport.label ?? 'sport';
+  const facilityCards = facilityPage?.facilities ?? [];
 
   function handleFacilitySelect(card: SportFacilityCard) {
     if (!card.enabled) {
@@ -123,6 +100,9 @@ export default function SportFacilityScreen() {
         </section>
 
         <div className="facility-select-grid" role="list" aria-label={`${sportLabel} facilities`}>
+          {loadingFacilities ? <div className="catalog-state"><Spinner variant="muted" /><span>Loading facilities...</span></div> : null}
+          {!loadingFacilities && facilitiesError ? <div className="catalog-state"><strong>Facilities are unavailable</strong><span>{facilitiesError}</span><button type="button" onClick={() => setFacilitiesRequestVersion((version) => version + 1)}>Retry</button></div> : null}
+          {!loadingFacilities && !facilitiesError && facilityCards.length === 0 ? <div className="catalog-state"><strong>No facilities available</strong><span>Please check again later.</span></div> : null}
           {facilityCards.map((card) => (
             <button
               type="button"
