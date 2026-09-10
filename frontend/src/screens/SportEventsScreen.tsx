@@ -9,6 +9,7 @@ import {
 import { useApp } from '@/context/AppContext';
 import { announce } from '@/lib/utils';
 import ScreenHeader from '@/components/ScreenHeader';
+import Spinner from '@/components/Spinner';
 import sportEventsBackground from '@/assets/select_sport_bk.png';
 import cricketBanner from '@/assets/cricket_banner.png';
 import cricketCard from '@/assets/card_cricket.png';
@@ -27,8 +28,6 @@ import imgCricketFacility from '@/assets/cricket_facility.png';
 import imgCricketAcademy from '@/assets/cricket_academy.png';
 import imgCricketCoach from '@/assets/cricket_coach.png';
 import imgCricketGear from '@/assets/cricket_gear.png';
-import fallbackSports from '@/data/json/sports.json';
-import fallbackSportEvents from '@/data/json/sport-events.json';
 import { fetchSportEvents } from '@/lib/api';
 import type { SportEventCard, SportEventsResponse, SportId, SportOption } from '@/types';
 
@@ -73,39 +72,6 @@ const EVENT_IMAGES: EventImageMap = {
   gear: imgCricketGear,
 };
 
-function resolveTemplate(template: string, sportLabel: string): string {
-  return template
-    .replace(/\{sportLower\}/g, sportLabel.toLowerCase())
-    .replace(/\{sport\}/g, sportLabel);
-}
-
-function buildFallbackSportPage(sportId: SportId): SportEventsResponse {
-  const sport = (fallbackSports as SportOption[]).find((item) => item.id === sportId) ?? (fallbackSports as SportOption[])[0];
-  const events = (fallbackSportEvents as Array<{
-    id: string;
-    sportId: SportId;
-    titleTemplate: string;
-    descriptionTemplate: string;
-    imageKey: SportEventCard['imageKey'];
-    icon: SportEventCard['icon'];
-    actionTarget: SportEventCard['actionTarget'];
-    enabled: boolean;
-    sortOrder: number;
-  }>).filter((event) => event.sportId === sport.id).map((event) => ({
-    id: event.id,
-    sportId: event.sportId,
-    title: resolveTemplate(event.titleTemplate, sport.label),
-    description: resolveTemplate(event.descriptionTemplate, sport.label),
-    imageKey: event.imageKey,
-    icon: event.icon,
-    actionTarget: event.actionTarget,
-    enabled: event.enabled,
-    sortOrder: event.sortOrder,
-  }));
-
-  return { sport, events };
-}
-
 function FeatureIcon({ kind }: { kind: SportEventCard['icon'] }) {
   if (kind === 'calendar') return <CalendarDays size={22} strokeWidth={2.1} />;
   if (kind === 'academy') return <GraduationCap size={22} strokeWidth={2.1} />;
@@ -116,10 +82,16 @@ function FeatureIcon({ kind }: { kind: SportEventCard['icon'] }) {
 export default function SportEventsScreen() {
   const { navigate, state } = useApp();
   const selectedSport = state.selectedSport ?? 'cricket';
-  const [sportPage, setSportPage] = useState<SportEventsResponse>(() => buildFallbackSportPage(selectedSport));
+  const [sportPage, setSportPage] = useState<SportEventsResponse | null>(null);
+  const [loadingEvents, setLoadingEvents] = useState(true);
+  const [eventsError, setEventsError] = useState<string | null>(null);
+  const [eventsRequestVersion, setEventsRequestVersion] = useState(0);
 
   useEffect(() => {
     let active = true;
+    setSportPage(null);
+    setLoadingEvents(true);
+    setEventsError(null);
 
     fetchSportEvents(selectedSport)
       .then((response) => {
@@ -127,20 +99,21 @@ export default function SportEventsScreen() {
           setSportPage(response);
         }
       })
-      .catch(() => {
-        if (active) {
-          setSportPage(buildFallbackSportPage(selectedSport));
-        }
+      .catch((caught) => {
+        if (active) setEventsError(caught instanceof Error ? caught.message : 'Unable to load sport activities.');
+      })
+      .finally(() => {
+        if (active) setLoadingEvents(false);
       });
 
     return () => {
       active = false;
     };
-  }, [selectedSport]);
+  }, [eventsRequestVersion, selectedSport]);
 
-  const selectedSportMeta = sportPage.sport;
-  const selectedSportBanner = SPORT_BANNERS[selectedSportMeta.bannerKey] ?? SPORT_BANNERS.cricket;
-  const selectedSportCard = SPORT_CARDS[selectedSportMeta.id] ?? SPORT_CARDS.cricket;
+  const selectedSportMeta = sportPage?.sport;
+  const selectedSportBanner = selectedSportMeta ? SPORT_BANNERS[selectedSportMeta.bannerKey] ?? SPORT_BANNERS.cricket : SPORT_BANNERS[selectedSport];
+  const selectedSportCard = selectedSportMeta ? SPORT_CARDS[selectedSportMeta.id] ?? SPORT_CARDS.cricket : SPORT_CARDS[selectedSport];
 
   function handleCardAction(card: SportEventCard) {
     if (!card.enabled) {
@@ -159,7 +132,7 @@ export default function SportEventsScreen() {
       >
         <ScreenHeader onBack={() => navigate('sport-select')} backAriaLabel="Back to sport list" />
 
-        <section className="sport-events-hero">
+        {selectedSportMeta ? <section className="sport-events-hero">
           <div className="sport-events-hero-left" aria-hidden="true">
             <img src={selectedSportBanner} alt="" className="sport-events-hero-banner" />
           </div>
@@ -172,10 +145,13 @@ export default function SportEventsScreen() {
             </div>
             <p>Everything you need for your {selectedSportMeta.label.toLowerCase()} journey, all in one place.</p>
           </div>
-        </section>
+        </section> : null}
 
-        <div className="sport-events-grid" role="list" aria-label={`${selectedSportMeta.label} features`}>
-          {sportPage.events.map((card) => (
+        <div className="sport-events-grid" role="list" aria-label={selectedSportMeta ? `${selectedSportMeta.label} features` : 'Sport activities'}>
+          {loadingEvents ? <div className="catalog-state"><Spinner variant="muted" /><span>Loading activities...</span></div> : null}
+          {!loadingEvents && eventsError ? <div className="catalog-state"><strong>Activities are unavailable</strong><span>{eventsError}</span><button type="button" onClick={() => setEventsRequestVersion((version) => version + 1)}>Retry</button></div> : null}
+          {!loadingEvents && !eventsError && sportPage?.events.length === 0 ? <div className="catalog-state"><strong>No activities available</strong><span>Please check again later.</span></div> : null}
+          {sportPage?.events.map((card) => (
             <button
               type="button"
               key={card.id}

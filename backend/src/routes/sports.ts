@@ -51,7 +51,7 @@ router.get('/:sportId/facilities', async (req, res) => {
     return;
   }
 
-  const facilities = await listSportFacilities(sport.id);
+  const facilities = (await listSportFacilities(sport.id)).filter((facility) => facility.enabled);
   res.json({ sport, facilities });
 });
 

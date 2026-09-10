@@ -17,9 +17,7 @@ import indoorCourtCard from '@/assets/indoor_court.png';
 import cricketFacility from '@/assets/cricket_facility.png';
 import pickleballIndoorCourt from '@/assets/pb-indoor-court.png';
 import pickleballOutdoorCourt from '@/assets/pb-outdoor-court.png';
-import fallbackSports from '@/data/json/sports.json';
-import fallbackSportFacilities from '@/data/json/sport-facilities.json';
-import type { SportFacilityCard, SportFacilityTemplate, SportId, SportOption } from '@/types';
+import type { SportFacilityCard } from '@/types';
 
 const FACILITY_IMAGES: Record<SportFacilityCard['imageKey'], string> = {
   'bowling-lane': bowlingLaneCard,
@@ -33,35 +31,6 @@ const FACILITY_IMAGES: Record<SportFacilityCard['imageKey'], string> = {
 };
 
 const SLOT_STEP_MINUTES = 30;
-
-function resolveTemplate(template: string, sportLabel: string): string {
-  return template
-    .replace(/\{sportLower\}/g, sportLabel.toLowerCase())
-    .replace(/\{sport\}/g, sportLabel);
-}
-
-function buildFallbackFacilityPage(sportId: SportId) {
-  const sport = (fallbackSports as SportOption[]).find((item) => item.id === sportId) ?? (fallbackSports as SportOption[])[0];
-  const facilities = (fallbackSportFacilities as SportFacilityTemplate[])
-    .filter((facility) => facility.sportId === sport.id)
-    .map((facility) => ({
-    id: `${sport.id}-${facility.code}`,
-    sportId: sport.id,
-    code: facility.code,
-    title: resolveTemplate(facility.titleTemplate, sport.label),
-    price: facility.price,
-    tag: facility.tag,
-    address: facility.address,
-    mapLocationUrl: facility.mapLocationUrl,
-    imageKey: facility.imageKey,
-    icon: facility.icon,
-    actionTarget: facility.actionTarget,
-    enabled: facility.enabled,
-    sortOrder: facility.sortOrder,
-    }));
-
-  return { sport, facilities };
-}
 
 function to12Hour(time: string): string {
   const [h, m] = time.split(':').map(Number);
@@ -126,21 +95,19 @@ function facilityDayLabel(date: Date, todayIso: string): string {
 
 export default function SlotBookingScreen() {
   const { state, dispatch, navigate, goBack } = useApp();
-  const selectedSport = state.selectedSport ?? 'cricket';
-  const fallbackPage = useMemo(() => buildFallbackFacilityPage(selectedSport), [selectedSport]);
-  const selectedFacility = state.selectedFacility ?? fallbackPage.facilities[0];
+  const selectedFacility = state.selectedFacility;
   const dateList = useMemo(() => rollingDatesForMonths(3), []);
   const todayIso = useMemo(() => toISO(new Date()), []);
   const dateStripWrapRef = useRef<HTMLDivElement | null>(null);
-  const ratePerHour = parseRate(selectedFacility.price);
+  const ratePerHour = selectedFacility ? parseRate(selectedFacility.price) : 0;
   const isDateSelectionLocked = state.slotsLoading;
   const [conflictPrompt, setConflictPrompt] = useState<{ blockedTimes: string[] } | null>(null);
 
   useEffect(() => {
     if (!state.selectedFacility) {
-      dispatch({ type: 'SET_SELECTED_FACILITY', payload: selectedFacility });
+      navigate('facility-select');
     }
-  }, [dispatch, selectedFacility, state.selectedFacility]);
+  }, [navigate, state.selectedFacility]);
 
   useEffect(() => {
     if (!state.selectedDate) {
@@ -149,13 +116,13 @@ export default function SlotBookingScreen() {
   }, [state.selectedDate, dispatch, todayIso]);
 
   useEffect(() => {
-    if (!state.selectedDate || !state.selectedSport || !selectedFacility.code) return;
+    if (!state.selectedDate || !state.selectedSport || !selectedFacility) return;
 
     dispatch({ type: 'SET_SLOTS_LOADING' });
     fetchSlots(state.selectedDate, state.selectedSport, selectedFacility.code)
       .then((res) => dispatch({ type: 'SET_SLOTS', payload: res.slots }))
       .catch((err) => dispatch({ type: 'SET_SLOTS_ERROR', payload: err.message ?? 'Failed to load slots.' }));
-  }, [state.selectedDate, state.selectedSport, selectedFacility.code, dispatch]);
+  }, [state.selectedDate, state.selectedSport, selectedFacility?.code, dispatch]);
 
   useEffect(() => {
     if (!state.bookingType || state.priceSubtotal !== 0) {
@@ -263,6 +230,8 @@ export default function SlotBookingScreen() {
     const distance = direction === 'next' ? 420 : -420;
     wrap.scrollBy({ left: distance, behavior: 'smooth' });
   }
+
+  if (!selectedFacility) return null;
 
   return (
     <div className="page-container page-container--immersive screen-fade-enter">

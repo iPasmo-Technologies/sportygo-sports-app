@@ -16,30 +16,57 @@ import type {
   RegisterPayload,
   SlotsResponse,
   SportFacilitiesResponse,
-  SportFacilityTemplate,
-  SportEventsResponse,
   SportEventTemplate,
+  SportEventsResponse,
   SportsResponse,
   StripePaymentIntentPayload,
   StripePaymentIntentResponse,
   StripeTestPaymentIntentPayload,
   SportId,
-  SportOption,
 } from '@/types';
 import { markLocalBooked, mergeWithLocalBooked, unmarkLocalBooked } from './localBookedSlots';
 import { encryptPasswordForTransport } from './authCrypto';
 import fallbackSports from '@/data/json/sports.json';
 import fallbackSportEvents from '@/data/json/sport-events.json';
-import fallbackSportFacilities from '@/data/json/sport-facilities.json';
 
 const BASE = import.meta.env.VITE_API_BASE_URL ?? '';
-let cachedSportsResponse: SportsResponse | null = null;
+const CATALOG_FALLBACK_ENABLED = import.meta.env.VITE_ENABLE_CATALOG_FALLBACK === 'true';
 let cachedSportsRequest: Promise<SportsResponse> | null = null;
-const cachedSportEventsResponse = new Map<SportId, SportEventsResponse>();
 const cachedSportEventsRequest = new Map<SportId, Promise<SportEventsResponse>>();
-const cachedSportFacilitiesResponse = new Map<SportId, SportFacilitiesResponse>();
 const cachedSportFacilitiesRequest = new Map<SportId, Promise<SportFacilitiesResponse>>();
 const SINGAPORE_TIME_ZONE = 'Asia/Singapore';
+
+function resolveCatalogTemplate(template: string, sportLabel: string): string {
+  return template
+    .replace(/\{sportLower\}/g, sportLabel.toLowerCase())
+    .replace(/\{sport\}/g, sportLabel);
+}
+
+function buildFallbackSports(): SportsResponse {
+  return { sports: fallbackSports as SportsResponse['sports'] };
+}
+
+function buildFallbackSportEvents(sportId: SportId): SportEventsResponse {
+  const sports = fallbackSports as SportsResponse['sports'];
+  const sport = sports.find((item) => item.id === sportId) ?? sports[0];
+  const templates = fallbackSportEvents as SportEventTemplate[];
+  return {
+    sport,
+    events: templates
+      .filter((event) => event.sportId === sport.id)
+      .map((event) => ({
+        id: event.id,
+        sportId: event.sportId,
+        title: resolveCatalogTemplate(event.titleTemplate, sport.label),
+        description: resolveCatalogTemplate(event.descriptionTemplate, sport.label),
+        imageKey: event.imageKey,
+        icon: event.icon,
+        actionTarget: event.actionTarget,
+        enabled: event.enabled,
+        sortOrder: event.sortOrder,
+      })),
+  };
+}
 
 type SingaporeDateTimeParts = {
   date: string;
@@ -144,54 +171,6 @@ function buildLocalSlots(date: string, sportId: SportId, facilityCode: string): 
   }
 
   return { slots };
-}
-
-function resolveTemplate(template: string, sportLabel: string): string {
-  return template
-    .replace(/\{sportLower\}/g, sportLabel.toLowerCase())
-    .replace(/\{sport\}/g, sportLabel);
-}
-
-function buildFallbackSportEvents(sportId: SportId): SportEventsResponse {
-  const sport = (fallbackSports as SportOption[]).find((item) => item.id === sportId) ?? (fallbackSports as SportOption[])[0];
-  const events = (fallbackSportEvents as SportEventTemplate[])
-    .filter((event) => event.sportId === sport.id)
-    .map((event) => ({
-    id: event.id,
-    sportId: event.sportId,
-    title: resolveTemplate(event.titleTemplate, sport.label),
-    description: resolveTemplate(event.descriptionTemplate, sport.label),
-    imageKey: event.imageKey,
-    icon: event.icon,
-    actionTarget: event.actionTarget,
-    enabled: event.enabled,
-    sortOrder: event.sortOrder,
-    }));
-
-  return { sport, events };
-}
-
-function buildFallbackSportFacilities(sportId: SportId): SportFacilitiesResponse {
-  const sport = (fallbackSports as SportOption[]).find((item) => item.id === sportId) ?? (fallbackSports as SportOption[])[0];
-  const facilities = (fallbackSportFacilities as SportFacilityTemplate[])
-    .filter((facility) => facility.sportId === sport.id)
-    .map((facility) => ({
-    id: `${sport.id}-${facility.code}`,
-    sportId: sport.id,
-    code: facility.code,
-    title: resolveTemplate(facility.titleTemplate, sport.label),
-    price: facility.price,
-    tag: facility.tag,
-    address: facility.address,
-    mapLocationUrl: facility.mapLocationUrl,
-    imageKey: facility.imageKey,
-    icon: facility.icon,
-    actionTarget: facility.actionTarget,
-    enabled: facility.enabled,
-    sortOrder: facility.sortOrder,
-    }));
-
-  return { sport, facilities };
 }
 
 export class ApiError extends Error {
@@ -378,20 +357,11 @@ export async function deactivateAdminRecurringBlock(id: string, token: string): 
 // ─── Sports ──────────────────────────────────────────────────
 
 export async function fetchSports(): Promise<SportsResponse> {
-  if (cachedSportsResponse) {
-    return cachedSportsResponse;
-  }
-
   if (!cachedSportsRequest) {
     cachedSportsRequest = request<SportsResponse>('/api/sports')
-      .then((response) => {
-        cachedSportsResponse = response;
-        return response;
-      })
-      .catch((_error) => {
-        const fallbackResponse = { sports: fallbackSports as SportsResponse['sports'] };
-        cachedSportsResponse = fallbackResponse;
-        return fallbackResponse;
+      .catch((error) => {
+        if (!CATALOG_FALLBACK_ENABLED) throw error;
+        return buildFallbackSports();
       })
       .finally(() => {
         cachedSportsRequest = null;
@@ -402,25 +372,15 @@ export async function fetchSports(): Promise<SportsResponse> {
 }
 
 export async function fetchSportEvents(sportId: SportId): Promise<SportEventsResponse> {
-  const cachedResponse = cachedSportEventsResponse.get(sportId);
-  if (cachedResponse) {
-    return cachedResponse;
-  }
-
   const cachedRequest = cachedSportEventsRequest.get(sportId);
   if (cachedRequest) {
     return cachedRequest;
   }
 
   const requestPromise = request<SportEventsResponse>(`/api/sports/${encodeURIComponent(sportId)}/events`)
-    .then((response) => {
-      cachedSportEventsResponse.set(sportId, response);
-      return response;
-    })
-    .catch((_error) => {
-      const fallbackResponse = buildFallbackSportEvents(sportId);
-      cachedSportEventsResponse.set(sportId, fallbackResponse);
-      return fallbackResponse;
+    .catch((error) => {
+      if (!CATALOG_FALLBACK_ENABLED) throw error;
+      return buildFallbackSportEvents(sportId);
     })
     .finally(() => {
       cachedSportEventsRequest.delete(sportId);
@@ -431,11 +391,6 @@ export async function fetchSportEvents(sportId: SportId): Promise<SportEventsRes
 }
 
 export async function fetchSportFacilities(sportId: SportId): Promise<SportFacilitiesResponse> {
-  const cachedResponse = cachedSportFacilitiesResponse.get(sportId);
-  if (cachedResponse) {
-    return cachedResponse;
-  }
-
   const cachedRequest = cachedSportFacilitiesRequest.get(sportId);
   if (cachedRequest) {
     return cachedRequest;
@@ -443,13 +398,11 @@ export async function fetchSportFacilities(sportId: SportId): Promise<SportFacil
 
   const requestPromise = request<SportFacilitiesResponse>(`/api/sports/${encodeURIComponent(sportId)}/facilities`)
     .then((response) => {
-      cachedSportFacilitiesResponse.set(sportId, response);
-      return response;
-    })
-    .catch((_error) => {
-      const fallbackResponse = buildFallbackSportFacilities(sportId);
-      cachedSportFacilitiesResponse.set(sportId, fallbackResponse);
-      return fallbackResponse;
+      const enabledResponse = {
+        ...response,
+        facilities: response.facilities.filter((facility) => facility.enabled),
+      };
+      return enabledResponse;
     })
     .finally(() => {
       cachedSportFacilitiesRequest.delete(sportId);

@@ -872,6 +872,33 @@ input { font-family: inherit; }
   position: relative;
   z-index: 2;
 }
+.catalog-state {
+  grid-column: 1 / -1;
+  min-height: 180px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  padding: 20px;
+  color: #94a3b8;
+  font-size: 0.78rem;
+  text-align: center;
+}
+.catalog-state strong { color: #ffffff; font-size: 0.9rem; }
+.catalog-state button {
+  min-height: 38px;
+  margin-top: 4px;
+  padding: 0 16px;
+  border: 1px solid #d4a556;
+  border-radius: 6px;
+  background: #0b2142;
+  color: #ffffff;
+  font-size: 0.72rem;
+  font-weight: 800;
+}
+.catalog-state button:hover,
+.catalog-state button:focus-visible { background: #7a5a20; }
 .sport-card {
   border-radius: 16px;
   border: 1.5px solid rgba(212, 165, 86, 0.62);
