@@ -19,6 +19,3 @@ frontend/.env.local
 # Wrangler local cache (Cloudflare account info, auto-regenerated)
 .wrangler/
 **/.wrangler/
-
-# Continue folder
-.continue/

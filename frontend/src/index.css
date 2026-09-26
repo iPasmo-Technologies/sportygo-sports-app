@@ -1301,16 +1301,6 @@ input { font-family: inherit; }
 .err-icon  { flex-shrink: 0; font-size: 1rem; margin-top: 1px; }
 .retry-lnk { margin-left: auto; flex-shrink: 0; color: var(--accent); cursor: pointer; text-decoration: underline; font-size: 0.8rem; }
 
-/* ── Success Banner ────────────────────────────────────────── */
-.success-banner {
-  display: flex; align-items: flex-start; gap: 10px;
-  background: rgba(34, 197, 94, 0.1); border: 1px solid rgba(34, 197, 94, 0.28);
-  border-radius: var(--radius-sm); padding: 14px 16px;
-  color: #86efac; font-size: 0.87rem; margin-bottom: 20px;
-}
-.success-icon  { flex-shrink: 0; font-size: 1rem; margin-top: 1px; }
-.success-dismiss { margin-left: auto; flex-shrink: 0; color: var(--accent); cursor: pointer; text-decoration: underline; font-size: 0.8rem; }
-
 /* ── Auth Card ─────────────────────────────────────────────── */
 .auth-wrap  { max-width: 430px; margin: 0 auto; }
 .auth-card  {
@@ -4098,122 +4088,6 @@ input { font-family: inherit; }
   font-weight: 700;
 }
 .profile-test-pay-btn:hover { background: rgba(212, 165, 86, 0.16); }
-
-/* ── Profile Edit Mode ────────────────────────────────────── */
-.profile-section-header {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  margin-bottom: 8px;
-}
-.profile-edit-btn {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  width: 36px;
-  height: 36px;
-  border: 1px solid rgba(212, 165, 86, 0.5);
-  border-radius: 8px;
-  background: rgba(212, 165, 86, 0.1);
-  color: #d4a556;
-  transition: background var(--transition), border-color var(--transition);
-}
-.profile-edit-btn:hover:not(:disabled) {
-  background: rgba(212, 165, 86, 0.2);
-  border-color: rgba(212, 165, 86, 0.8);
-}
-.profile-edit-btn:disabled {
-  opacity: 0.5;
-  cursor: not-allowed;
-}
-
-.profile-edit-form {
-  display: flex;
-  flex-direction: column;
-  gap: 12px;
-}
-.profile-edit-field {
-  display: flex;
-  flex-direction: column;
-  gap: 6px;
-}
-.profile-edit-field label {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  color: #aebbcf;
-  font-size: 0.75rem;
-}
-.profile-edit-field label svg {
-  color: #d4a556;
-  flex: 0 0 auto;
-}
-.profile-edit-field input {
-  min-height: 44px;
-  padding: 10px 12px;
-  border: 1px solid rgba(39, 58, 87, 0.95);
-  border-radius: 8px;
-  background: rgba(8, 22, 48, 0.92);
-  color: #eef2f8;
-  font-size: 0.85rem;
-  font-weight: 600;
-  transition: border-color var(--transition), box-shadow var(--transition);
-}
-.profile-edit-field input:focus {
-  outline: none;
-  border-color: var(--accent);
-  box-shadow: 0 0 0 3px rgba(223, 255, 0, 0.2);
-}
-.profile-edit-field input:disabled,
-.profile-edit-field--readonly {
-  opacity: 0.6;
-  cursor: not-allowed;
-}
-.profile-edit-field--readonly {
-  background: rgba(8, 22, 48, 0.6) !important;
-}
-
-.profile-edit-actions {
-  display: flex;
-  gap: 10px;
-  margin-top: 4px;
-}
-.profile-btn-cancel,
-.profile-btn-save {
-  flex: 1;
-  min-height: 44px;
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  gap: 8px;
-  border-radius: 8px;
-  font-size: 0.85rem;
-  font-weight: 700;
-  transition: background var(--transition), border-color var(--transition);
-}
-.profile-btn-cancel {
-  border: 1px solid rgba(148, 163, 184, 0.5);
-  background: rgba(32, 41, 56, 0.8);
-  color: #c4cada;
-}
-.profile-btn-cancel:hover:not(:disabled) {
-  background: rgba(32, 41, 56, 1);
-  border-color: rgba(148, 163, 184, 0.8);
-}
-.profile-btn-save {
-  border: 1px solid rgba(212, 165, 86, 0.8);
-  background: rgba(212, 165, 86, 0.2);
-  color: #d4a556;
-}
-.profile-btn-save:hover:not(:disabled) {
-  background: rgba(212, 165, 86, 0.3);
-  border-color: #d4a556;
-}
-.profile-btn-save:disabled,
-.profile-btn-cancel:disabled {
-  opacity: 0.5;
-  cursor: not-allowed;
-}
 
 /* ── Mock payment banner + button (checkout) ─────────────── */
 .checkout-mock-banner {

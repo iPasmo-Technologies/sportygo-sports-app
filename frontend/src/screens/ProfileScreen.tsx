@@ -10,12 +10,9 @@ import {
   Phone,
   ShieldCheck,
   UserRound,
-  Save,
-  X,
-  Edit,
 } from 'lucide-react';
 import { useApp } from '@/context/AppContext';
-import { ApiError, fetchProfile, updateProfile } from '@/lib/api';
+import { ApiError, fetchProfile } from '@/lib/api';
 import { clearRememberedAuth } from '@/lib/rememberedAuth';
 import { announce } from '@/lib/utils';
 import ScreenHeader from '@/components/ScreenHeader';
@@ -39,11 +36,7 @@ export default function ProfileScreen() {
   const { state, dispatch, navigate } = useApp();
   const [profile, setProfile] = useState<ProfileResponse | null>(null);
   const [error, setError] = useState<string | null>(null);
-  const [success, setSuccess] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
-  const [editMode, setEditMode] = useState(false);
-  const [formData, setFormData] = useState({ fullName: '', mobileNumber: '' });
-  const [saving, setSaving] = useState(false);
 
   useEffect(() => {
     if (!state.authToken) {
@@ -56,10 +49,7 @@ export default function ProfileScreen() {
 
     fetchProfile(state.authToken)
       .then((response) => {
-        if (!cancelled) {
-          setProfile(response);
-          setFormData({ fullName: response.fullName, mobileNumber: response.mobileNumber });
-        }
+        if (!cancelled) setProfile(response);
       })
       .catch((err) => {
         if (cancelled) return;
@@ -86,53 +76,6 @@ export default function ProfileScreen() {
     announce('You have been logged out.');
   }
 
-  function handleEditClick() {
-    setEditMode(true);
-    setSuccess(null);
-  }
-
-  function handleCancelEdit() {
-    setEditMode(false);
-    setSuccess(null);
-    if (profile) {
-      setFormData({ fullName: profile.fullName, mobileNumber: profile.mobileNumber });
-    }
-  }
-
-  async function handleSaveEdit() {
-    if (!state.authToken || !profile) return;
-
-    const trimmedFullName = formData.fullName.trim();
-    const trimmedMobileNumber = formData.mobileNumber.trim();
-
-    // Check if there are any actual changes
-    if (trimmedFullName === profile.fullName && trimmedMobileNumber === profile.mobileNumber) {
-      setError('No changes detected. Please modify the fields before saving.');
-      return;
-    }
-
-    setError(null);
-    setSuccess(null);
-    setSaving(true);
-
-    try {
-      const updatedProfile = await updateProfile(state.authToken, trimmedFullName, trimmedMobileNumber);
-      setProfile(updatedProfile);
-      setEditMode(false);
-      setSuccess('Profile updated successfully.');
-      announce('Profile updated successfully.');
-    } catch (err) {
-      const message = err instanceof Error ? err.message : 'Unable to update profile. Please try again.';
-      setError(message);
-    } finally {
-      setSaving(false);
-    }
-  }
-
-  function handleInputChange(field: 'fullName' | 'mobileNumber', value: string) {
-    setFormData(prev => ({ ...prev, [field]: value }));
-  }
-
   const displayName = profile?.fullName ?? 'SportyGo Member';
 
   return (
@@ -146,22 +89,6 @@ export default function ProfileScreen() {
         </section>
 
         <ErrorBanner message={error} onDismiss={() => setError(null)} />
-
-        {success && (
-          <div className="success-banner" role="status">
-            <span className="success-icon">✅</span>
-            <span>{success}</span>
-            <span
-              className="success-dismiss"
-              role="button"
-              tabIndex={0}
-              onClick={() => setSuccess(null)}
-              onKeyDown={e => { if (e.key === 'Enter' || e.key === ' ') setSuccess(null); }}
-            >
-              Dismiss
-            </span>
-          </div>
-        )}
 
         {loading ? (
           <div className="profile-loading"><Spinner /></div>
@@ -191,93 +118,25 @@ export default function ProfileScreen() {
             </section>
 
             <section className="profile-section" aria-labelledby="account-details-title">
-              <div className="profile-section-header">
-                <h2 id="account-details-title">Account details</h2>
-                {!editMode && (
-                  <button type="button" className="profile-edit-btn" onClick={handleEditClick} aria-label="Edit profile">
-                    <Edit size={18} />
-                  </button>
-                )}
-              </div>
-
-              {editMode ? (
-                <form onSubmit={(e) => { e.preventDefault(); handleSaveEdit(); }} className="profile-edit-form">
-                  <div className="profile-edit-field">
-                    <label htmlFor="edit-fullName"><UserRound size={18} /> Full name</label>
-                    <input
-                      id="edit-fullName"
-                      type="text"
-                      value={formData.fullName}
-                      onChange={(e) => handleInputChange('fullName', e.target.value)}
-                      required
-                      minLength={2}
-                      disabled={saving}
-                      autoComplete="name"
-                    />
-                  </div>
-                  <div className="profile-edit-field">
-                    <label htmlFor="edit-email"><Mail size={18} /> Email address</label>
-                    <input
-                      id="edit-email"
-                      type="email"
-                      value={profile.email}
-                      readOnly
-                      disabled
-                      className="profile-edit-field--readonly"
-                    />
-                  </div>
-                  <div className="profile-edit-field">
-                    <label htmlFor="edit-mobileNumber"><Phone size={18} /> Mobile number</label>
-                    <input
-                      id="edit-mobileNumber"
-                      type="tel"
-                      value={formData.mobileNumber}
-                      onChange={(e) => handleInputChange('mobileNumber', e.target.value)}
-                      required
-                      disabled={saving}
-                      autoComplete="tel"
-                    />
-                  </div>
-                  <div className="profile-edit-field">
-                    <label><ShieldCheck size={18} /> Sign-in method</label>
-                    <input
-                      type="text"
-                      value="Email & password"
-                      readOnly
-                      disabled
-                      className="profile-edit-field--readonly"
-                    />
-                  </div>
-                  <div className="profile-edit-actions">
-                    <button type="button" className="profile-btn-cancel" onClick={handleCancelEdit} disabled={saving}>
-                      <X size={18} /> Cancel
-                    </button>
-                    <button type="submit" className="profile-btn-save" disabled={saving || !formData.fullName.trim() || !formData.mobileNumber.trim()}>
-                      {saving ? <Spinner variant="muted" /> : <Save size={18} />}
-                      {saving ? 'Saving...' : 'Save'}
-                    </button>
-                  </div>
-                </form>
-              ) : (
-                <dl className="profile-details">
-                  <div>
-                    <dt><UserRound size={18} /> Full name</dt>
-                    <dd>{profile.fullName}</dd>
-                  </div>
-                  <div>
-                    <dt><Mail size={18} /> Email address</dt>
-                    <dd>{profile.email}</dd>
-                  </div>
-                  <div>
-                    <dt><Phone size={18} /> Mobile number</dt>
-                    <dd>{profile.mobileNumber}</dd>
-                  </div>
-                  <div>
-                    <dt><ShieldCheck size={18} /> Sign-in method</dt>
-                    <dd>Email & password</dd>
-                  </div>
-                </dl>
-              )}
+              <h2 id="account-details-title">Account details</h2>
+              <dl className="profile-details">
+                <div>
+                  <dt><UserRound size={18} /> Full name</dt>
+                  <dd>{profile.fullName}</dd>
+                </div>
+                <div>
+                  <dt><Mail size={18} /> Email address</dt>
+                  <dd>{profile.email}</dd>
+                </div>
+                <div>
+                  <dt><Phone size={18} /> Mobile number</dt>
+                  <dd>{profile.mobileNumber}</dd>
+                </div>
+                <div>
+                  <dt><ShieldCheck size={18} /> Sign-in method</dt>
+                  <dd>Email & password</dd>
+                </div>
+              </dl>
             </section>
 
             <section className="profile-section" aria-labelledby="support-title">
