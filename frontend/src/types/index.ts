@@ -343,6 +343,7 @@ export interface AdminBookingItem {
   status: 'confirmed' | 'cash_pending' | 'cancelled';
   createdAt: string;
   updatedAt: string;
+  mobileNumber: string | null;
 }
 
 export interface AdminBookingsResponse {

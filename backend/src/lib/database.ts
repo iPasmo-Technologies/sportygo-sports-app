@@ -110,6 +110,7 @@ export type AdminBookingRow = {
   status: BookingHistoryRow['status'];
   createdAt: string;
   updatedAt: string;
+  mobileNumber: string | null;
 };
 
 type BookingInput = {
@@ -2111,8 +2112,10 @@ export async function listAllBookingsForAdmin(): Promise<AdminBookingRow[]> {
             booking.package_id AS "packageId",
                  booking.status,
                  booking.created_at::text AS "createdAt",
-                 booking.updated_at::text AS "updatedAt"
+                 booking.updated_at::text AS "updatedAt",
+                 users.mobile_number AS "mobileNumber"
      FROM bookings AS booking
+     LEFT JOIN users ON users.email = booking.customer_email AND users.deleted_at IS NULL
      WHERE booking.deleted_at IS NULL
      ORDER BY booking.slot_date DESC, booking.slot_time DESC, booking.created_at DESC`
   );
@@ -2495,6 +2498,63 @@ export async function updateUserPasswordByEmailOrMobile(input: {
                auth_provider AS "authProvider",
                role`,
     [normalizedLoginId, input.passwordEncrypted]
+  );
+
+  return rows[0] ?? null;
+}
+
+export async function updateUserProfile(input: {
+  email: string;
+  fullName: string;
+  mobileNumber: string;
+}): Promise<UserAuthRow | null> {
+  const normalizedEmail = input.email.trim().toLowerCase();
+  const normalizedFullName = input.fullName.trim();
+  const normalizedMobileNumber = input.mobileNumber.trim();
+
+  if (!normalizedFullName || normalizedFullName.length < 2) {
+    throw new Error('Name must be at least 2 characters.');
+  }
+
+  const MOBILE_RE = /^\+?[0-9]{8,15}$/;
+  if (!normalizedMobileNumber || !MOBILE_RE.test(normalizedMobileNumber)) {
+    throw new Error('Enter a valid mobile number.');
+  }
+
+  if (!pool) {
+    const existing = await findUserByEmail(normalizedEmail);
+    if (!existing) {
+      return null;
+    }
+
+    const updated: UserAuthRow = {
+      ...existing,
+      fullName: normalizedFullName,
+      mobileNumber: normalizedMobileNumber,
+    };
+
+    fallbackUsers.set(normalizedEmail, updated);
+    return updated;
+  }
+
+  const rows = await query<UserAuthRow>(
+    `UPDATE users
+     SET full_name = $2,
+         mobile_number = $3,
+         updated_at = NOW(),
+         updated_by = email
+     WHERE deleted_at IS NULL
+       AND LOWER(email) = LOWER($1)
+     RETURNING id,
+               email,
+               full_name AS "fullName",
+               mobile_number AS "mobileNumber",
+               password_encrypted AS "passwordEncrypted",
+               password_reset_code AS "passwordResetCode",
+               password_reset_expires_at::text AS "passwordResetExpiresAt",
+               auth_provider AS "authProvider",
+               role`,
+    [normalizedEmail, normalizedFullName, normalizedMobileNumber]
   );
 
   return rows[0] ?? null;
