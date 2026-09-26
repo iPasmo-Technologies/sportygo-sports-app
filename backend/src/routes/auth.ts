@@ -1,6 +1,6 @@
 import { Router } from 'express';
 import jwt from 'jsonwebtoken';
-import { completePasswordReset, countUsersByMobileNumber, createUserPasswordAccount, extendPasswordResetExpiry, findUserByEmail, findUserByEmailOrMobile, listAllUsersForAdmin, savePasswordResetCode, verifyPasswordResetCode } from '../lib/database';
+import { completePasswordReset, countUsersByMobileNumber, createUserPasswordAccount, extendPasswordResetExpiry, findUserByEmail, findUserByEmailOrMobile, listAllUsersForAdmin, savePasswordResetCode, updateUserProfile, verifyPasswordResetCode } from '../lib/database';
 import { decryptClientPasswordPayload, decryptPasswordAtRest, encryptPasswordAtRest } from '../lib/authCrypto';
 import { sendPasswordResetPasscode, sendWelcomeEmail } from '../lib/email';
 import { authMiddleware, requireAdminRole, type AuthenticatedRequest } from '../middleware/authMiddleware';
@@ -40,6 +40,49 @@ router.get('/profile', authMiddleware, async (req: AuthenticatedRequest, res) =>
     email: user.email,
     mobileNumber: user.mobileNumber,
   });
+});
+
+// PUT /api/auth/profile — update user profile (full name and mobile number)
+router.put('/profile', authMiddleware, async (req: AuthenticatedRequest, res) => {
+  const { fullName, mobileNumber } = req.body as { fullName?: string; mobileNumber?: string };
+  const userEmail = req.user?.email;
+
+  if (!userEmail) {
+    res.status(401).json({ error: 'Authentication required.' });
+    return;
+  }
+
+  if (!fullName || !fullName.trim()) {
+    res.status(400).json({ error: 'Full name is required.' });
+    return;
+  }
+
+  if (!mobileNumber || !mobileNumber.trim()) {
+    res.status(400).json({ error: 'Mobile number is required.' });
+    return;
+  }
+
+  try {
+    const updatedUser = await updateUserProfile({
+      email: userEmail,
+      fullName: fullName.trim(),
+      mobileNumber: mobileNumber.trim(),
+    });
+
+    if (!updatedUser) {
+      res.status(404).json({ error: 'Account profile was not found.' });
+      return;
+    }
+
+    res.json({
+      fullName: updatedUser.fullName,
+      email: updatedUser.email,
+      mobileNumber: updatedUser.mobileNumber,
+    });
+  } catch (error) {
+    const message = error instanceof Error ? error.message : 'Unable to update profile.';
+    res.status(400).json({ error: message });
+  }
 });
 
 // GET /api/auth/users — admin-only directory of registered user accounts.

@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from 'react';
-import { CalendarClock, CalendarDays, ChevronLeft, ChevronRight, Clock3, Mail, MapPin, Package, ReceiptText, Search, WalletCards } from 'lucide-react';
+import { CalendarClock, CalendarDays, ChevronLeft, ChevronRight, Clock3, Mail, MapPin, Package, Phone, ReceiptText, Search, WalletCards } from 'lucide-react';
 import ScreenHeader from '@/components/ScreenHeader';
 import ErrorBanner from '@/components/ErrorBanner';
 import Spinner from '@/components/Spinner';
@@ -81,7 +81,7 @@ function matchesSearch(booking: AdminBookingItem, query: string): boolean {
   if (!query.trim()) return true;
   const haystack = [booking.facilityTitle, booking.facilityAddress, booking.receiptId, booking.customerEmail,
     booking.createdBy, booking.payMethod, booking.packageId, booking.slotDate, booking.status,
-    booking.durationMins, booking.grandTotal, booking.createdAt, booking.updatedAt].filter((value) => value !== null && value !== undefined).join(' ').toLowerCase();
+    booking.durationMins, booking.grandTotal, booking.createdAt, booking.updatedAt, booking.mobileNumber].filter((value) => value !== null && value !== undefined).join(' ').toLowerCase();
   return haystack.includes(query.trim().toLowerCase());
 }
 
@@ -169,7 +169,7 @@ export default function AdminBookingsScreen() {
             <strong>{periodLabel}</strong>
             <button type="button" onClick={() => movePeriod(1)} aria-label={`Next ${view}`}><ChevronRight size={18} /></button>
           </div>
-          <label className="admin-bookings-search"><Search size={15} /><input type="search" value={search} onChange={(event) => setSearch(event.target.value)} placeholder="Search customer, facility, receipt..." /></label>
+          <label className="admin-bookings-search"><Search size={15} /><input type="search" value={search} onChange={(event) => setSearch(event.target.value)} placeholder="Search customer, facility, receipt, phone..." /></label>
           <label className="admin-bookings-date"><span>Booking date</span><input type="date" value={selectedDate} onChange={(event) => selectExactDate(event.target.value)} /></label>
         </section>
 
@@ -198,6 +198,7 @@ export default function AdminBookingsScreen() {
                 <div className="admin-booking-meta">
                   <span><ReceiptText size={13} />{booking.receiptId}</span>
                   <a href={`mailto:${booking.customerEmail}`}><Mail size={13} />{booking.customerEmail}</a>
+                  {booking.mobileNumber ? <a href={`tel:${booking.mobileNumber}`}><Phone size={13} />{booking.mobileNumber}</a> : null}
                   {showCreatedBy ? <span>Created by {booking.createdBy}</span> : null}
                   <span><CalendarClock size={13} />{auditDetails.label}: {auditDetails.value}</span>
                   <strong className={`admin-booking-schedule ${scheduleState}`}>

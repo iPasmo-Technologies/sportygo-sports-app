@@ -221,6 +221,14 @@ export async function fetchProfile(token: string): Promise<ProfileResponse> {
   });
 }
 
+export async function updateProfile(token: string, fullName: string, mobileNumber: string): Promise<ProfileResponse> {
+  return request<ProfileResponse>('/api/auth/profile', {
+    method: 'PUT',
+    headers: { Authorization: `Bearer ${token}` },
+    body: JSON.stringify({ fullName, mobileNumber }),
+  });
+}
+
 export async function registerUser(payload: RegisterPayload): Promise<LoginResponse> {
   const encryptedPassword = await encryptPasswordForTransport(payload.password);
 
