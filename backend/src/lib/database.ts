@@ -1061,6 +1061,13 @@ async function ensureSchema(client: PoolClient): Promise<void> {
     WHERE rule_type = 'recurring'
   `);
   await client.query(`
+    CREATE UNIQUE INDEX IF NOT EXISTS idx_slot_block_rules_one_time_unique
+    ON slot_block_rules (
+      admin_email, sport_id, facility_code, slot_start_time, slot_end_time, md5(selected_dates::text)
+    )
+    WHERE rule_type = 'one-time' AND deleted_at IS NULL
+  `);
+  await client.query(`
     CREATE INDEX IF NOT EXISTS idx_slot_block_rules_active_lookup
     ON slot_block_rules (rule_type, sport_id, facility_code)
     WHERE deleted_at IS NULL
@@ -1719,19 +1726,42 @@ export async function blockSlotsForAdmin(input: {
         blockedCount += result.rowCount ?? 0;
       }
 
-      const blockResult = await client.query<{ id: string }>(
-        `INSERT INTO slot_block_rules (
-           rule_type, admin_email, sport_id, facility_code, facility_title,
-           selected_dates, slot_start_time, slot_end_time, reason,
-           blocked_slot_count, created_by, updated_by
-         ) VALUES ('one-time', $1, $2, $3, $4, $5::jsonb, $6::time, $7::time, $8, $9, $1, $1)
-         RETURNING id`,
-        [adminEmail, input.sportId, input.facilityCode, facilityTitle, JSON.stringify(dates), input.startTime, input.endTime, reason, blockedCount]
+      // Check if an identical one-time block already exists to prevent duplicates
+      const existingBlockResult = await client.query<{ id: string }>(
+        `SELECT id FROM slot_block_rules
+         WHERE rule_type = 'one-time'
+           AND admin_email = $1
+           AND sport_id = $2
+           AND facility_code = $3
+           AND slot_start_time = $4::time
+           AND slot_end_time = $5::time
+           AND selected_dates = $6::jsonb
+           AND deleted_at IS NULL
+         LIMIT 1`,
+        [adminEmail, input.sportId, input.facilityCode, input.startTime, input.endTime, JSON.stringify(dates)]
       );
+
+      let blockId: string;
+      if (existingBlockResult.rowCount && existingBlockResult.rowCount > 0) {
+        // Identical block already exists, return its ID without creating a duplicate
+        blockId = existingBlockResult.rows[0].id;
+      } else {
+        // No existing block, insert new record
+        const blockResult = await client.query<{ id: string }>(
+          `INSERT INTO slot_block_rules (
+             rule_type, admin_email, sport_id, facility_code, facility_title,
+             selected_dates, slot_start_time, slot_end_time, reason,
+             blocked_slot_count, created_by, updated_by
+           ) VALUES ('one-time', $1, $2, $3, $4, $5::jsonb, $6::time, $7::time, $8, $9, $1, $1)
+           RETURNING id`,
+          [adminEmail, input.sportId, input.facilityCode, facilityTitle, JSON.stringify(dates), input.startTime, input.endTime, reason, blockedCount]
+        );
+        blockId = blockResult.rows[0].id;
+      }
 
       await client.query('COMMIT');
       return {
-        blockId: blockResult.rows[0].id,
+        blockId,
         sportId: input.sportId,
         facilityCode: input.facilityCode,
         facilityTitle,
