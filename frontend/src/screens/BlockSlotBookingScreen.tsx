@@ -167,6 +167,11 @@ export default function BlockSlotBookingScreen() {
         endTime,
         reason: reason.trim(),
       }, state.authToken);
+      if (response.alreadyBlocked) {
+        setError('These slots are already blocked. No new block rule was created.');
+        announce('These slots are already blocked.');
+        return;
+      }
       if (response.blockedCount === 0) {
         setError('No new slots were blocked. The range may be outside configured booking hours or already unavailable.');
         announce('No new slots were blocked.');

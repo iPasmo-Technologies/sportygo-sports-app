@@ -234,6 +234,7 @@ export interface AdminSlotBlockResponse extends AdminSlotBlockPayload {
   blockId: string;
   facilityTitle: string;
   blockedCount: number;
+  alreadyBlocked: boolean;
 }
 
 export interface AdminUserRow {

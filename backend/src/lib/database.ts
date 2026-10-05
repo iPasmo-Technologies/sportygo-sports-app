@@ -178,6 +178,7 @@ export type AdminSlotBlockResult = {
   startTime: string;
   endTime: string;
   reason: string;
+  alreadyBlocked: boolean;
 };
 
 export type AdminBlockRuleRow = {
@@ -1060,6 +1061,20 @@ async function ensureSchema(client: PoolClient): Promise<void> {
     )
     WHERE rule_type = 'recurring'
   `);
+  // Deduplicate existing one-time block rules before creating unique index
+  // Keep the oldest record for each unique combination
+  await client.query(`
+    DELETE FROM slot_block_rules
+    WHERE rule_type = 'one-time'
+      AND deleted_at IS NULL
+      AND id NOT IN (
+        SELECT DISTINCT ON (admin_email, sport_id, facility_code, slot_start_time, slot_end_time, selected_dates)
+          id
+        FROM slot_block_rules
+        WHERE rule_type = 'one-time' AND deleted_at IS NULL
+        ORDER BY admin_email, sport_id, facility_code, slot_start_time, slot_end_time, selected_dates, created_at ASC
+      )
+  `);
   await client.query(`
     CREATE UNIQUE INDEX IF NOT EXISTS idx_slot_block_rules_one_time_unique
     ON slot_block_rules (
@@ -1691,7 +1706,6 @@ export async function blockSlotsForAdmin(input: {
   const dates = [...new Set(input.dates)].sort();
   const adminEmail = input.adminEmail.trim().toLowerCase();
   const reason = input.reason.trim() || 'Admin blocked';
-  let blockedCount = 0;
 
   return withDatabaseClient(async (client) => {
     await client.query('BEGIN');
@@ -1707,6 +1721,103 @@ export async function blockSlotsForAdmin(input: {
       }
       const facilityTitle = facilityResult.rows[0].title;
 
+      // First, check if all requested slots are already blocked by any source
+      // We need to check for each date if all slots in the time range are already booked
+      let allSlotsAlreadyBlocked = true;
+      let totalRequestedSlots = 0;
+      let totalAlreadyBlockedSlots = 0;
+
+      for (const date of dates) {
+        await ensureSlotsForDate(client, date, input.sportId, input.facilityCode);
+        
+        // Count total slots in the requested range for this date
+        const totalSlotsResult = await client.query<{ count: string }>(
+          `SELECT COUNT(*)::text AS count
+           FROM slots
+           WHERE slot_date = $1
+             AND sport_id = $2
+             AND facility_code = $3
+             AND slot_time >= $4::time
+             AND slot_time < $5::time
+             AND deleted_at IS NULL`,
+          [date, input.sportId, input.facilityCode, input.startTime, input.endTime]
+        );
+        const totalSlotsForDate = parseInt(totalSlotsResult.rows[0]?.count ?? '0', 10);
+        totalRequestedSlots += totalSlotsForDate;
+
+        // Count already blocked slots in the requested range for this date
+        const blockedSlotsResult = await client.query<{ count: string }>(
+          `SELECT COUNT(*)::text AS count
+           FROM slots
+           WHERE slot_date = $1
+             AND sport_id = $2
+             AND facility_code = $3
+             AND slot_time >= $4::time
+             AND slot_time < $5::time
+             AND is_booked = TRUE
+             AND deleted_at IS NULL`,
+          [date, input.sportId, input.facilityCode, input.startTime, input.endTime]
+        );
+        const blockedSlotsForDate = parseInt(blockedSlotsResult.rows[0]?.count ?? '0', 10);
+        totalAlreadyBlockedSlots += blockedSlotsForDate;
+
+        if (blockedSlotsForDate < totalSlotsForDate) {
+          allSlotsAlreadyBlocked = false;
+        }
+      }
+
+      // If all requested slots are already blocked, return early without creating a new block rule
+      if (allSlotsAlreadyBlocked && totalRequestedSlots > 0) {
+        // Check if there's an existing one-time block rule that covers these slots
+        // (for audit trail purposes, we return the existing block ID if found)
+        const existingBlockResult = await client.query<{ id: string }>(
+          `SELECT id FROM slot_block_rules
+           WHERE rule_type = 'one-time'
+             AND sport_id = $1
+             AND facility_code = $2
+             AND slot_start_time = $3::time
+             AND slot_end_time = $4::time
+             AND deleted_at IS NULL
+             AND selected_dates @> $5::jsonb
+           ORDER BY created_at DESC
+           LIMIT 1`,
+          [input.sportId, input.facilityCode, input.startTime, input.endTime, JSON.stringify(dates)]
+        );
+
+        let blockId: string;
+        if (existingBlockResult.rowCount && existingBlockResult.rowCount > 0) {
+          blockId = existingBlockResult.rows[0].id;
+        } else {
+          // Create a minimal block rule for audit trail (with blockedCount = 0)
+          const blockResult = await client.query<{ id: string }>(
+            `INSERT INTO slot_block_rules (
+               rule_type, admin_email, sport_id, facility_code, facility_title,
+               selected_dates, slot_start_time, slot_end_time, reason,
+               blocked_slot_count, created_by, updated_by
+             ) VALUES ('one-time', $1, $2, $3, $4, $5::jsonb, $6::time, $7::time, $8, 0, $1, $1)
+             RETURNING id`,
+            [adminEmail, input.sportId, input.facilityCode, facilityTitle, JSON.stringify(dates), input.startTime, input.endTime, reason]
+          );
+          blockId = blockResult.rows[0].id;
+        }
+
+        await client.query('COMMIT');
+        return {
+          blockId,
+          sportId: input.sportId,
+          facilityCode: input.facilityCode,
+          facilityTitle,
+          blockedCount: 0,
+          dates,
+          startTime: input.startTime,
+          endTime: input.endTime,
+          reason,
+          alreadyBlocked: true,
+        };
+      }
+
+      // Not all slots are blocked - proceed to block the unblocked slots
+      let blockedCount = 0;
       for (const date of dates) {
         await ensureSlotsForDate(client, date, input.sportId, input.facilityCode);
         const result = await client.query(
@@ -1726,42 +1837,20 @@ export async function blockSlotsForAdmin(input: {
         blockedCount += result.rowCount ?? 0;
       }
 
-      // Check if an identical one-time block already exists to prevent duplicates
-      const existingBlockResult = await client.query<{ id: string }>(
-        `SELECT id FROM slot_block_rules
-         WHERE rule_type = 'one-time'
-           AND admin_email = $1
-           AND sport_id = $2
-           AND facility_code = $3
-           AND slot_start_time = $4::time
-           AND slot_end_time = $5::time
-           AND selected_dates = $6::jsonb
-           AND deleted_at IS NULL
-         LIMIT 1`,
-        [adminEmail, input.sportId, input.facilityCode, input.startTime, input.endTime, JSON.stringify(dates)]
+      // Insert the block rule record
+      const blockResult = await client.query<{ id: string }>(
+        `INSERT INTO slot_block_rules (
+           rule_type, admin_email, sport_id, facility_code, facility_title,
+           selected_dates, slot_start_time, slot_end_time, reason,
+           blocked_slot_count, created_by, updated_by
+         ) VALUES ('one-time', $1, $2, $3, $4, $5::jsonb, $6::time, $7::time, $8, $9, $1, $1)
+         RETURNING id`,
+        [adminEmail, input.sportId, input.facilityCode, facilityTitle, JSON.stringify(dates), input.startTime, input.endTime, reason, blockedCount]
       );
-
-      let blockId: string;
-      if (existingBlockResult.rowCount && existingBlockResult.rowCount > 0) {
-        // Identical block already exists, return its ID without creating a duplicate
-        blockId = existingBlockResult.rows[0].id;
-      } else {
-        // No existing block, insert new record
-        const blockResult = await client.query<{ id: string }>(
-          `INSERT INTO slot_block_rules (
-             rule_type, admin_email, sport_id, facility_code, facility_title,
-             selected_dates, slot_start_time, slot_end_time, reason,
-             blocked_slot_count, created_by, updated_by
-           ) VALUES ('one-time', $1, $2, $3, $4, $5::jsonb, $6::time, $7::time, $8, $9, $1, $1)
-           RETURNING id`,
-          [adminEmail, input.sportId, input.facilityCode, facilityTitle, JSON.stringify(dates), input.startTime, input.endTime, reason, blockedCount]
-        );
-        blockId = blockResult.rows[0].id;
-      }
 
       await client.query('COMMIT');
       return {
-        blockId,
+        blockId: blockResult.rows[0].id,
         sportId: input.sportId,
         facilityCode: input.facilityCode,
         facilityTitle,
@@ -1770,6 +1859,7 @@ export async function blockSlotsForAdmin(input: {
         startTime: input.startTime,
         endTime: input.endTime,
         reason,
+        alreadyBlocked: false,
       };
     } catch (error) {
       await client.query('ROLLBACK');
