@@ -206,6 +206,20 @@ export class SlotAlreadyBookedError extends Error {
   }
 }
 
+export class SlotAlreadyBlockedError extends Error {
+  constructor() {
+    super('The selected slots are already blocked or unavailable for the chosen date(s) and time range.');
+    this.name = 'SlotAlreadyBlockedError';
+  }
+}
+
+export class SlotRangeUnavailableError extends Error {
+  constructor() {
+    super('No bookable slots exist in the selected time range. Check the facility operating hours.');
+    this.name = 'SlotRangeUnavailableError';
+  }
+}
+
 export class SlotReservedError extends Error {
   constructor(slotDate: string, slotTime: string) {
     super(`Slot ${slotDate} ${slotTime} is temporarily reserved by another user. Please try again shortly.`);
@@ -1685,6 +1699,8 @@ export async function blockSlotsForAdmin(input: {
   const adminEmail = input.adminEmail.trim().toLowerCase();
   const reason = input.reason.trim() || 'Admin blocked';
   let blockedCount = 0;
+  const blockedDates: string[] = [];
+  let rangeHasSlots = false;
 
   return withDatabaseClient(async (client) => {
     await client.query('BEGIN');
@@ -1699,6 +1715,9 @@ export async function blockSlotsForAdmin(input: {
         throw new Error('Selected facility does not exist or is disabled.');
       }
       const facilityTitle = facilityResult.rows[0].title;
+
+      // Serialize concurrent blocks per facility so identical requests cannot both insert a rule.
+      await client.query('SELECT pg_advisory_xact_lock(hashtext($1))', [`slot-block:${input.sportId}:${input.facilityCode}`]);
 
       for (const date of dates) {
         await ensureSlotsForDate(client, date, input.sportId, input.facilityCode);
@@ -1717,6 +1736,50 @@ export async function blockSlotsForAdmin(input: {
           [date, input.startTime, input.endTime, adminEmail, input.sportId, input.facilityCode]
         );
         blockedCount += result.rowCount ?? 0;
+
+        // A date is "already blocked" only when every slot in the range is covered by an active block rule;
+        // slots held by customer bookings are not covered, so cancelling them later keeps the admin block.
+        const coverage = await client.query<{ total: string; uncovered: string }>(
+          `SELECT COUNT(*) AS total,
+                  COUNT(*) FILTER (WHERE NOT (
+                    EXISTS (
+                      SELECT 1 FROM slot_block_rules block
+                      WHERE block.deleted_at IS NULL
+                        AND block.rule_type = 'recurring'
+                        AND block.sport_id = s.sport_id
+                        AND block.facility_code = s.facility_code
+                        AND s.slot_date BETWEEN block.valid_from AND block.valid_to
+                        AND block.weekday_name = $6
+                        AND s.slot_time >= block.slot_start_time
+                        AND s.slot_time < block.slot_end_time
+                    ) OR EXISTS (
+                      SELECT 1 FROM slot_block_rules block
+                      WHERE block.deleted_at IS NULL
+                        AND block.rule_type = 'one-time'
+                        AND block.selected_dates ? (s.slot_date)::text
+                        AND ((block.sport_id = s.sport_id AND block.facility_code = s.facility_code)
+                          OR (block.sport_id IS NULL AND block.facility_code IS NULL))
+                        AND s.slot_time >= block.slot_start_time
+                        AND s.slot_time < block.slot_end_time
+                    )
+                  )) AS uncovered
+           FROM slots s
+           WHERE s.slot_date = $1
+             AND s.sport_id = $4
+             AND s.facility_code = $5
+             AND s.slot_time >= $2::time
+             AND s.slot_time < $3::time
+             AND s.deleted_at IS NULL`,
+          [date, input.startTime, input.endTime, input.sportId, input.facilityCode, weekdayNameForDate(date)]
+        );
+        const total = Number(coverage.rows[0].total);
+        if (total > 0) rangeHasSlots = true;
+        if (Number(coverage.rows[0].uncovered) > 0) blockedDates.push(date);
+      }
+
+      // Nothing new to block: do not persist a duplicate rule.
+      if (blockedCount === 0) {
+        throw rangeHasSlots ? new SlotAlreadyBlockedError() : new SlotRangeUnavailableError();
       }
 
       const blockResult = await client.query<{ id: string }>(
@@ -1726,7 +1789,7 @@ export async function blockSlotsForAdmin(input: {
            blocked_slot_count, created_by, updated_by
          ) VALUES ('one-time', $1, $2, $3, $4, $5::jsonb, $6::time, $7::time, $8, $9, $1, $1)
          RETURNING id`,
-        [adminEmail, input.sportId, input.facilityCode, facilityTitle, JSON.stringify(dates), input.startTime, input.endTime, reason, blockedCount]
+        [adminEmail, input.sportId, input.facilityCode, facilityTitle, JSON.stringify(blockedDates), input.startTime, input.endTime, reason, blockedCount]
       );
 
       await client.query('COMMIT');
@@ -1736,7 +1799,7 @@ export async function blockSlotsForAdmin(input: {
         facilityCode: input.facilityCode,
         facilityTitle,
         blockedCount,
-        dates,
+        dates: blockedDates,
         startTime: input.startTime,
         endTime: input.endTime,
         reason,

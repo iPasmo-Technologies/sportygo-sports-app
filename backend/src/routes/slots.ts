@@ -1,7 +1,7 @@
 import { randomUUID } from 'crypto';
 import { Router } from 'express';
 import { authMiddleware, requireAdminRole, type AuthenticatedRequest } from '../middleware/authMiddleware';
-import { blockSlotsForAdmin, createRecurringBlockRules, deactivateRecurringBlockRule, listAdminBlockRules, listSportFacilities, listSlotsForDate, listSports, reserveSlot, releaseReservation, SlotConfigurationMissingError, SlotAlreadyBookedError, SlotReservedError, updateRecurringBlockRule, type SportRow } from '../lib/database';
+import { blockSlotsForAdmin, createRecurringBlockRules, deactivateRecurringBlockRule, listAdminBlockRules, listSportFacilities, listSlotsForDate, listSports, reserveSlot, releaseReservation, SlotConfigurationMissingError, SlotAlreadyBlockedError, SlotAlreadyBookedError, SlotRangeUnavailableError, SlotReservedError, updateRecurringBlockRule, type SportRow } from '../lib/database';
 import { sendAdminSlotBlockEmail } from '../lib/email';
 
 const router = Router();
@@ -130,6 +130,18 @@ router.post('/block', authMiddleware, requireAdminRole, async (req: Authenticate
 
     res.status(201).json(result);
   } catch (error) {
+    if (error instanceof SlotAlreadyBlockedError) {
+      res.status(409).json({ error: error.message });
+      return;
+    }
+    if (error instanceof SlotConfigurationMissingError) {
+      res.status(422).json({ error: 'No weekday slot configuration found for one of the selected dates. Configure start/end time for that weekday first.' });
+      return;
+    }
+    if (error instanceof SlotRangeUnavailableError) {
+      res.status(422).json({ error: error.message });
+      return;
+    }
     console.error('[admin:block-slots] Unable to block slots.', error);
     res.status(500).json({ error: 'Unable to block slots. Please try again.' });
   }

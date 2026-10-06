@@ -171,7 +171,7 @@ The availability response considers a slot unavailable when any of these apply:
 - another customer has an unexpired pending reservation for it; or
 - the slot is in the past or has already started in Singapore time.
 
-Blocks do not cancel existing bookings. A one-time block reports only the number of rows that were still unbooked when it was applied, so `blockedCount` can be lower than the requested number of segments.
+Blocks do not cancel existing bookings. A one-time block reports only the number of rows that were still unbooked when it was applied, so `blockedCount` can be lower than the requested number of segments. If no slot would be newly blocked, the request is rejected and no `slot_block_rules` record is created: `409` when the range is already blocked or booked, `422` when no slots exist in the range or a selected weekday has no slot configuration. The stored rule and the response `dates` omit dates whose requested range is already fully covered by an active block rule.
 
 ### Preparing slots for next year
 
