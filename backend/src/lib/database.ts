@@ -716,6 +716,13 @@ async function ensureSchema(client: PoolClient): Promise<void> {
     ALTER COLUMN password_encrypted SET NOT NULL
   `);
 
+  // Add index on mobile_number for faster login lookups
+  await client.query(`
+    CREATE INDEX IF NOT EXISTS idx_users_mobile_number
+    ON users (mobile_number)
+    WHERE deleted_at IS NULL
+  `);
+
   await client.query(`
     CREATE TABLE IF NOT EXISTS packages (
       id TEXT PRIMARY KEY,
@@ -2420,8 +2427,10 @@ export async function upsertUserByEmail(email: string, provider: 'password' | 'g
 }
 
 export async function findUserByEmail(email: string): Promise<UserAuthRow | null> {
+  const normalizedEmail = email.trim().toLowerCase();
+
   if (!pool) {
-    return fallbackUsers.get(email.toLowerCase()) ?? null;
+    return fallbackUsers.get(normalizedEmail) ?? null;
   }
 
   const rows = await query<UserAuthRow>(
@@ -2436,9 +2445,9 @@ export async function findUserByEmail(email: string): Promise<UserAuthRow | null
             role
      FROM users
      WHERE deleted_at IS NULL
-       AND LOWER(email) = LOWER($1)
+       AND email = $1
      LIMIT 1`,
-    [email]
+    [normalizedEmail]
   );
 
   return rows[0] ?? null;
@@ -2483,27 +2492,47 @@ export async function findUserByEmailOrMobile(loginId: string): Promise<UserAuth
     return null;
   }
 
-  const rows = await query<UserAuthRow>(
+  // First try to find by email (uses email unique index)
+  const emailRows = await query<UserAuthRow>(
     `SELECT id,
             email,
             full_name AS "fullName",
             mobile_number AS "mobileNumber",
             password_encrypted AS "passwordEncrypted",
-                 password_reset_code AS "passwordResetCode",
-                 password_reset_expires_at::text AS "passwordResetExpiresAt",
+            password_reset_code AS "passwordResetCode",
+            password_reset_expires_at::text AS "passwordResetExpiresAt",
             auth_provider AS "authProvider",
             role
      FROM users
      WHERE deleted_at IS NULL
-       AND (
-         LOWER(email) = LOWER($1)
-         OR LOWER(mobile_number) = LOWER($1)
-       )
+       AND email = $1
      LIMIT 1`,
     [normalizedLoginId]
   );
 
-  return rows[0] ?? null;
+  if (emailRows.length > 0) {
+    return emailRows[0];
+  }
+
+  // If not found by email, try mobile_number (uses mobile_number index)
+  const mobileRows = await query<UserAuthRow>(
+    `SELECT id,
+            email,
+            full_name AS "fullName",
+            mobile_number AS "mobileNumber",
+            password_encrypted AS "passwordEncrypted",
+            password_reset_code AS "passwordResetCode",
+            password_reset_expires_at::text AS "passwordResetExpiresAt",
+            auth_provider AS "authProvider",
+            role
+     FROM users
+     WHERE deleted_at IS NULL
+       AND mobile_number = $1
+     LIMIT 1`,
+    [normalizedLoginId]
+  );
+
+  return mobileRows[0] ?? null;
 }
 
 export async function countUsersByMobileNumber(mobileNumber: string): Promise<number> {
@@ -2523,7 +2552,7 @@ export async function countUsersByMobileNumber(mobileNumber: string): Promise<nu
     `SELECT COUNT(*) as count
      FROM users
      WHERE deleted_at IS NULL
-       AND LOWER(mobile_number) = LOWER($1)`,
+       AND mobile_number = $1`,
     [normalizedMobile]
   );
 
@@ -2553,7 +2582,8 @@ export async function updateUserPasswordByEmailOrMobile(input: {
     return updated;
   }
 
-  const rows = await query<UserAuthRow>(
+  // First try to update by email (uses email unique index)
+  let rows = await query<UserAuthRow>(
     `UPDATE users
      SET password_encrypted = $2,
          password_reset_code = NULL,
@@ -2561,10 +2591,7 @@ export async function updateUserPasswordByEmailOrMobile(input: {
          updated_at = NOW(),
          updated_by = COALESCE(NULLIF(email, ''), $1)
      WHERE deleted_at IS NULL
-       AND (
-         LOWER(email) = LOWER($1)
-         OR LOWER(mobile_number) = LOWER($1)
-       )
+       AND email = $1
      RETURNING id,
                email,
                full_name AS "fullName",
@@ -2576,6 +2603,30 @@ export async function updateUserPasswordByEmailOrMobile(input: {
                role`,
     [normalizedLoginId, input.passwordEncrypted]
   );
+
+  // If not updated by email, try mobile_number (uses mobile_number index)
+  if (rows.length === 0) {
+    rows = await query<UserAuthRow>(
+      `UPDATE users
+       SET password_encrypted = $2,
+           password_reset_code = NULL,
+           password_reset_expires_at = NULL,
+           updated_at = NOW(),
+           updated_by = COALESCE(NULLIF(email, ''), $1)
+       WHERE deleted_at IS NULL
+         AND mobile_number = $1
+       RETURNING id,
+                 email,
+                 full_name AS "fullName",
+                 mobile_number AS "mobileNumber",
+                 password_encrypted AS "passwordEncrypted",
+                 password_reset_code AS "passwordResetCode",
+                 password_reset_expires_at::text AS "passwordResetExpiresAt",
+                 auth_provider AS "authProvider",
+                 role`,
+      [normalizedLoginId, input.passwordEncrypted]
+    );
+  }
 
   return rows[0] ?? null;
 }
@@ -2621,7 +2672,7 @@ export async function updateUserProfile(input: {
          updated_at = NOW(),
          updated_by = email
      WHERE deleted_at IS NULL
-       AND LOWER(email) = LOWER($1)
+       AND email = $1
      RETURNING id,
                email,
                full_name AS "fullName",
@@ -2728,7 +2779,7 @@ export async function savePasswordResetCode(input: {
          updated_at = NOW(),
          updated_by = email
      WHERE deleted_at IS NULL
-       AND LOWER(email) = LOWER($1)
+       AND email = $1
      RETURNING id,
                email,
                full_name AS "fullName",
@@ -2764,7 +2815,7 @@ export async function extendPasswordResetExpiry(email: string, expiresAtIso: str
          updated_at = NOW(),
          updated_by = email
      WHERE deleted_at IS NULL
-       AND LOWER(email) = LOWER($1)
+       AND email = $1
        AND password_reset_code IS NOT NULL
      RETURNING id,
                email,
@@ -2802,7 +2853,7 @@ export async function verifyPasswordResetCode(input: {
        SELECT 1
        FROM users
        WHERE deleted_at IS NULL
-         AND LOWER(email) = LOWER($1)
+         AND email = $1
          AND password_reset_code = $2
          AND password_reset_expires_at IS NOT NULL
          AND password_reset_expires_at > NOW()
