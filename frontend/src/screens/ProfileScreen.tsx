@@ -1,4 +1,4 @@
-import { useEffect, useState, useRef } from 'react';
+import { useEffect, useState, useRef, useMemo, useCallback } from 'react';
 import {
   CalendarDays,
   ChevronRight,
@@ -53,9 +53,31 @@ export default function ProfileScreen() {
   const [clubLoading, setClubLoading] = useState(true);
   const clubDropdownRef = useRef<HTMLDivElement>(null);
 
-  const filteredClubs = clubOptions.filter((club) =>
-    club.label.toLowerCase().includes(clubSearch.toLowerCase()) &&
-    !formData.clubs.split(',').filter(Boolean).includes(club.key)
+  // Memoize selected clubs array to avoid repeated split/filter
+  const selectedClubKeys = useMemo(() => 
+    formData.clubs.split(',').filter(Boolean), 
+    [formData.clubs]
+  );
+
+  // Create a Map for O(1) club lookups
+  const clubOptionsMap = useMemo(() => 
+    new Map(clubOptions.map(c => [c.key, c])), 
+    [clubOptions]
+  );
+
+  // Memoize filtered clubs to avoid recomputation on every render
+  const filteredClubs = useMemo(() => 
+    clubOptions.filter((club) =>
+      club.label.toLowerCase().includes(clubSearch.toLowerCase()) &&
+      !selectedClubKeys.includes(club.key)
+    ), 
+    [clubOptions, clubSearch, selectedClubKeys]
+  );
+
+  // Memoize selected clubs for display
+  const selectedClubs = useMemo(() => 
+    selectedClubKeys.map(key => clubOptionsMap.get(key)).filter(Boolean), 
+    [selectedClubKeys, clubOptionsMap]
   );
 
   useEffect(() => {
