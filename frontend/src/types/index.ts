@@ -324,6 +324,7 @@ export interface BookingHistoryItem {
   facilityMapLocationUrl: string | null;
   facilityImageKey: SportFacilityImageKey | null;
   facilityTag: string | null;
+  clubs: string | null;
 }
 
 export interface BookingHistoryResponse {

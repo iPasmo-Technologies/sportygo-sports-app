@@ -93,6 +93,7 @@ export type BookingHistoryRow = {
   facilityMapLocationUrl: string | null;
   facilityImageKey: SportFacilityRow['imageKey'] | null;
   facilityTag: string | null;
+  clubs: string | null;
 };
 
 export type AdminBookingRow = {
@@ -2103,12 +2104,14 @@ export async function listBookingsByCustomer(customerEmail: string): Promise<Boo
        COALESCE(facility.image_key, booking.facility_image_key) AS "facilityImageKey",
        COALESCE(facility.tag_label, booking.facility_tag) AS "facilityTag",
        booking.status,
-       booking.payment_method AS "paymentMethod"
+       booking.payment_method AS "paymentMethod",
+       users.clubs
      FROM bookings AS booking
      LEFT JOIN sport_facilities AS facility
        ON facility.sport_id = booking.sport_id
       AND facility.facility_code = booking.facility_code
       AND facility.deleted_at IS NULL
+     LEFT JOIN users ON users.email = booking.customer_email AND users.deleted_at IS NULL
      WHERE booking.deleted_at IS NULL
        AND LOWER(BTRIM(booking.customer_email)) = $1
      ORDER BY booking.slot_date DESC, booking.slot_time DESC`,

@@ -10,6 +10,7 @@ import {
   ReceiptText,
   Tag,
   Timer,
+  Users,
   X,
 } from 'lucide-react';
 import { useApp } from '@/context/AppContext';
@@ -61,6 +62,7 @@ type BookingCard = {
   payMethod: BookingHistoryItem['payMethod'];
   paymentMethod: BookingHistoryItem['paymentMethod'];
   image: string | null;
+  clubs: string | null;
 };
 
 function currentSingaporeDateTimeKey(): string {
@@ -126,6 +128,7 @@ function mapHistoryToCard(item: BookingHistoryItem): BookingCard {
     payMethod: item.payMethod,
     paymentMethod: item.paymentMethod,
     image: item.facilityImageKey ? FACILITY_IMAGES[item.facilityImageKey] : null,
+    clubs: item.clubs,
   };
 }
 
@@ -444,6 +447,12 @@ function BookingDetailsDialog({ booking, onClose }: { booking: BookingCard; onCl
             <ReceiptText size={18} strokeWidth={2.1} />
             <span><small>Total paid</small><strong>{booking.amount}</strong></span>
           </div>
+          {booking.clubs && (
+            <div className="booking-details-field">
+              <Users size={18} strokeWidth={2.1} />
+              <span><small>Organization / Club</small><strong>{booking.clubs}</strong></span>
+            </div>
+          )}
         </div>
 
         <div className="booking-details-id">
