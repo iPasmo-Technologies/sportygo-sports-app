@@ -57,6 +57,12 @@ export default function LoginScreen() {
   }, []);
 
   useEffect(() => {
+    // Only fetch clubs when in register mode
+    if (mode !== 'register') {
+      setClubLoading(false);
+      return;
+    }
+
     let cancelled = false;
     setClubLoading(true);
     fetchClubs()
@@ -74,7 +80,7 @@ export default function LoginScreen() {
       });
 
     return () => { cancelled = true; };
-  }, []);
+  }, [mode]);
 
   useEffect(() => {
     function handleClickOutside(event: MouseEvent) {

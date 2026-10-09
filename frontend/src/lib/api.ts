@@ -277,10 +277,38 @@ export async function resetPasswordWithCode(email: string, code: string, passwor
 }
 
 // ─── Clubs ────────────────────────────────────────────────────
+const CLUBS_CACHE_KEY = 'sportygo_clubs_cache';
+const CLUBS_CACHE_TTL_MS = 10 * 60 * 1000; // 10 minutes
+
 export async function fetchClubs(): Promise<Record<string, string>> {
-  return request<Record<string, string>>('/api/auth/clubs', {
+  // Check cache first
+  try {
+    const cached = localStorage.getItem(CLUBS_CACHE_KEY);
+    if (cached) {
+      const { data, timestamp } = JSON.parse(cached);
+      if (Date.now() - timestamp < CLUBS_CACHE_TTL_MS) {
+        return data;
+      }
+    }
+  } catch {
+    // Ignore cache errors
+  }
+
+  const data = await request<Record<string, string>>('/api/auth/clubs', {
     method: 'GET',
   });
+
+  // Cache the result
+  try {
+    localStorage.setItem(CLUBS_CACHE_KEY, JSON.stringify({
+      data,
+      timestamp: Date.now(),
+    }));
+  } catch {
+    // Ignore cache errors
+  }
+
+  return data;
 }
 
 // ─── Slots ────────────────────────────────────────────────────
