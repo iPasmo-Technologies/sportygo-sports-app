@@ -1,7 +1,7 @@
-import { useEffect, useState } from 'react';
-import { ArrowRight, Eye, EyeOff, House, Lock, Mail, Phone, UserRound } from 'lucide-react';
+import { useEffect, useState, useRef } from 'react';
+import { ArrowRight, Eye, EyeOff, House, Lock, Mail, Phone, UserRound, Search, X } from 'lucide-react';
 import { useApp } from '@/context/AppContext';
-import { loginUser, registerUser } from '@/lib/api';
+import { loginUser, registerUser, fetchClubs } from '@/lib/api';
 import { clearRememberedAuth, readRememberedAuth, saveRememberedAuth } from '@/lib/rememberedAuth';
 import { extractRoleFromToken } from '@/lib/jwtUtils';
 import { announce } from '@/lib/utils';
@@ -14,6 +14,8 @@ const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 const MOBILE_RE = /^\+?[0-9]{8,15}$/;
 
 type AuthMode = 'login' | 'register';
+
+type ClubOption = { key: string; label: string };
 
 export default function LoginScreen() {
   const { dispatch, state } = useApp();
@@ -32,6 +34,12 @@ export default function LoginScreen() {
   const [loading, setLoading]     = useState(false);
   const [loginErr, setLoginErr]   = useState<string | null>(null);
   const [successMsg, setSuccessMsg] = useState<string | null>(null);
+  const [clubs, setClubs]         = useState<string[]>([]);
+  const [clubSearch, setClubSearch] = useState('');
+  const [clubOptions, setClubOptions] = useState<ClubOption[]>([]);
+  const [showClubDropdown, setShowClubDropdown] = useState(false);
+  const [clubLoading, setClubLoading] = useState(true);
+  const clubDropdownRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
     let mounted = true;
@@ -47,6 +55,51 @@ export default function LoginScreen() {
       mounted = false;
     };
   }, []);
+
+  useEffect(() => {
+    let cancelled = false;
+    setClubLoading(true);
+    fetchClubs()
+      .then((data) => {
+        if (!cancelled) {
+          const options = Object.entries(data).map(([key, label]) => ({ key, label }));
+          setClubOptions(options);
+        }
+      })
+      .catch(() => {
+        if (!cancelled) setClubOptions([]);
+      })
+      .finally(() => {
+        if (!cancelled) setClubLoading(false);
+      });
+
+    return () => { cancelled = true; };
+  }, []);
+
+  useEffect(() => {
+    function handleClickOutside(event: MouseEvent) {
+      if (clubDropdownRef.current && !clubDropdownRef.current.contains(event.target as Node)) {
+        setShowClubDropdown(false);
+      }
+    }
+    document.addEventListener('mousedown', handleClickOutside);
+    return () => document.removeEventListener('mousedown', handleClickOutside);
+  }, []);
+
+  const filteredClubs = clubOptions.filter((club) =>
+    club.label.toLowerCase().includes(clubSearch.toLowerCase()) &&
+    !clubs.includes(club.key)
+  );
+
+  function handleClubSelect(club: ClubOption) {
+    setClubs(prev => [...prev, club.key]);
+    setClubSearch('');
+    setShowClubDropdown(false);
+  }
+
+  function handleClubRemove(clubKey: string) {
+    setClubs(prev => prev.filter(key => key !== clubKey));
+  }
 
   function validateLogin(): boolean {
     let valid = true;
@@ -149,12 +202,14 @@ export default function LoginScreen() {
         mobileNumber: mobile.trim(),
         email: email.trim(),
         password,
+        clubs: clubs.join(','),
       });
       setMode('login');
       setName('');
       setMobile('');
       setPassword('');
       setShowPw(false);
+      setClubs([]);
       setNameErr('');
       setMobileErr('');
       setEmailErr('');
@@ -288,6 +343,80 @@ export default function LoginScreen() {
                   />
                 </div>
                 <div className="login-field-error">{mobileErr}</div>
+              </div>
+
+              <div className="login-field">
+                <label className="login-label" htmlFor="inp-clubs">Organization / Club</label>
+                <div className="login-clubs-field">
+                  <div className="login-clubs-selected">
+                    {clubs.map((clubKey) => {
+                      const club = clubOptions.find(c => c.key === clubKey);
+                      return club ? (
+                        <span key={club.key} className="login-club-tag">
+                          {club.label}
+                          <button
+                            type="button"
+                            className="login-club-remove"
+                            onClick={() => handleClubRemove(club.key)}
+                            aria-label={`Remove ${club.label}`}
+                          >
+                            <X size={14} strokeWidth={2.5} />
+                          </button>
+                        </span>
+                      ) : null;
+                    })}
+                  </div>
+                  <div className="login-club-search-wrap" ref={clubDropdownRef}>
+                    <div className="login-club-search-input-wrap">
+                      <Search size={18} strokeWidth={2} className="login-club-search-icon" aria-hidden="true" />
+                      <input
+                        id="inp-clubs"
+                        type="text"
+                        className="login-club-search-input"
+                        placeholder={clubLoading ? 'Loading clubs...' : 'Search and select clubs...'}
+                        value={clubSearch}
+                        onChange={e => {
+                          setClubSearch(e.target.value);
+                          setShowClubDropdown(true);
+                        }}
+                        onFocus={() => setShowClubDropdown(true)}
+                        autoComplete="off"
+                        disabled={clubLoading}
+                      />
+                      {clubSearch && (
+                        <button
+                          type="button"
+                          className="login-club-search-clear"
+                          onClick={() => setClubSearch('')}
+                          aria-label="Clear search"
+                        >
+                          <X size={16} strokeWidth={2.5} />
+                        </button>
+                      )}
+                    </div>
+                    {showClubDropdown && !clubLoading && (
+                      <div className="login-club-dropdown" role="listbox" aria-label="Available clubs">
+                        {filteredClubs.length === 0 ? (
+                          <div className="login-club-dropdown-empty">
+                            {clubSearch ? 'No matching clubs found' : 'All available clubs selected'}
+                          </div>
+                        ) : (
+                          filteredClubs.map((club) => (
+                            <button
+                              key={club.key}
+                              type="button"
+                              className="login-club-dropdown-item"
+                              role="option"
+                              onClick={() => handleClubSelect(club)}
+                            >
+                              {club.label}
+                            </button>
+                          ))
+                        )}
+                      </div>
+                    )}
+                  </div>
+                </div>
               </div>
             </>
           )}

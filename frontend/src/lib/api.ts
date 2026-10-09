@@ -221,11 +221,11 @@ export async function fetchProfile(token: string): Promise<ProfileResponse> {
   });
 }
 
-export async function updateProfile(token: string, fullName: string, mobileNumber: string): Promise<ProfileResponse> {
+export async function updateProfile(token: string, fullName: string, mobileNumber: string, clubs?: string): Promise<ProfileResponse> {
   return request<ProfileResponse>('/api/auth/profile', {
     method: 'PUT',
     headers: { Authorization: `Bearer ${token}` },
-    body: JSON.stringify({ fullName, mobileNumber }),
+    body: JSON.stringify({ fullName, mobileNumber, clubs }),
   });
 }
 
@@ -239,6 +239,7 @@ export async function registerUser(payload: RegisterPayload): Promise<LoginRespo
       name: payload.name,
       mobileNumber: payload.mobileNumber,
       encryptedPassword,
+      clubs: payload.clubs,
     }),
   });
 }
@@ -272,6 +273,13 @@ export async function resetPasswordWithCode(email: string, code: string, passwor
   return request<{ message: string }>('/api/auth/forgot-password/reset', {
     method: 'POST',
     body: JSON.stringify({ email, code, encryptedPassword }),
+  });
+}
+
+// ─── Clubs ────────────────────────────────────────────────────
+export async function fetchClubs(): Promise<Record<string, string>> {
+  return request<Record<string, string>>('/api/auth/clubs', {
+    method: 'GET',
   });
 }
 

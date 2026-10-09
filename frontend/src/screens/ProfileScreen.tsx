@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useState, useRef } from 'react';
 import {
   CalendarDays,
   ChevronRight,
@@ -13,9 +13,10 @@ import {
   Save,
   X,
   Edit,
+  Search,
 } from 'lucide-react';
 import { useApp } from '@/context/AppContext';
-import { ApiError, fetchProfile, updateProfile } from '@/lib/api';
+import { ApiError, fetchProfile, updateProfile, fetchClubs } from '@/lib/api';
 import { clearRememberedAuth } from '@/lib/rememberedAuth';
 import { announce } from '@/lib/utils';
 import ScreenHeader from '@/components/ScreenHeader';
@@ -25,6 +26,8 @@ import pageBackground from '@/assets/select_sport_bk.png';
 import type { ProfileResponse } from '@/types';
 
 const PAYMENT_TEST_PAGE_ENABLED = (import.meta.env.VITE_PAYMENT_TEST_PAGE_ENABLED ?? 'false').trim() === 'true';
+
+type ClubOption = { key: string; label: string };
 
 function initialsFor(name: string): string {
   return name
@@ -42,8 +45,18 @@ export default function ProfileScreen() {
   const [success, setSuccess] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const [editMode, setEditMode] = useState(false);
-  const [formData, setFormData] = useState({ fullName: '', mobileNumber: '' });
+  const [formData, setFormData] = useState({ fullName: '', mobileNumber: '', clubs: '' });
   const [saving, setSaving] = useState(false);
+  const [clubOptions, setClubOptions] = useState<ClubOption[]>([]);
+  const [clubSearch, setClubSearch] = useState('');
+  const [showClubDropdown, setShowClubDropdown] = useState(false);
+  const [clubLoading, setClubLoading] = useState(true);
+  const clubDropdownRef = useRef<HTMLDivElement>(null);
+
+  const filteredClubs = clubOptions.filter((club) =>
+    club.label.toLowerCase().includes(clubSearch.toLowerCase()) &&
+    !formData.clubs.split(',').filter(Boolean).includes(club.key)
+  );
 
   useEffect(() => {
     if (!state.authToken) {
@@ -53,12 +66,17 @@ export default function ProfileScreen() {
 
     let cancelled = false;
     setLoading(true);
+    setClubLoading(true);
 
     fetchProfile(state.authToken)
       .then((response) => {
         if (!cancelled) {
           setProfile(response);
-          setFormData({ fullName: response.fullName, mobileNumber: response.mobileNumber });
+          setFormData({ 
+            fullName: response.fullName, 
+            mobileNumber: response.mobileNumber,
+            clubs: response.clubs ?? '',
+          });
         }
       })
       .catch((err) => {
@@ -76,10 +94,34 @@ export default function ProfileScreen() {
         if (!cancelled) setLoading(false);
       });
 
+    fetchClubs()
+      .then((data) => {
+        if (!cancelled) {
+          const options = Object.entries(data).map(([key, label]) => ({ key, label }));
+          setClubOptions(options);
+        }
+      })
+      .catch(() => {
+        if (!cancelled) setClubOptions([]);
+      })
+      .finally(() => {
+        if (!cancelled) setClubLoading(false);
+      });
+
     return () => {
       cancelled = true;
     };
   }, [dispatch, navigate, state.authToken]);
+
+  useEffect(() => {
+    function handleClickOutside(event: MouseEvent) {
+      if (clubDropdownRef.current && !clubDropdownRef.current.contains(event.target as Node)) {
+        setShowClubDropdown(false);
+      }
+    }
+    document.addEventListener('mousedown', handleClickOutside);
+    return () => document.removeEventListener('mousedown', handleClickOutside);
+  }, []);
 
   function logOut() {
     dispatch({ type: 'LOG_OUT' });
@@ -95,7 +137,7 @@ export default function ProfileScreen() {
     setEditMode(false);
     setSuccess(null);
     if (profile) {
-      setFormData({ fullName: profile.fullName, mobileNumber: profile.mobileNumber });
+      setFormData({ fullName: profile.fullName, mobileNumber: profile.mobileNumber, clubs: profile.clubs ?? '' });
     }
   }
 
@@ -104,9 +146,10 @@ export default function ProfileScreen() {
 
     const trimmedFullName = formData.fullName.trim();
     const trimmedMobileNumber = formData.mobileNumber.trim();
+    const trimmedClubs = formData.clubs.trim();
 
     // Check if there are any actual changes
-    if (trimmedFullName === profile.fullName && trimmedMobileNumber === profile.mobileNumber) {
+    if (trimmedFullName === profile.fullName && trimmedMobileNumber === profile.mobileNumber && trimmedClubs === (profile.clubs ?? '')) {
       setError('No changes detected. Please modify the fields before saving.');
       return;
     }
@@ -116,7 +159,7 @@ export default function ProfileScreen() {
     setSaving(true);
 
     try {
-      const updatedProfile = await updateProfile(state.authToken, trimmedFullName, trimmedMobileNumber);
+      const updatedProfile = await updateProfile(state.authToken, trimmedFullName, trimmedMobileNumber, trimmedClubs);
       setProfile(updatedProfile);
       setEditMode(false);
       setSuccess('Profile updated successfully.');
@@ -129,7 +172,7 @@ export default function ProfileScreen() {
     }
   }
 
-  function handleInputChange(field: 'fullName' | 'mobileNumber', value: string) {
+  function handleInputChange(field: 'fullName' | 'mobileNumber' | 'clubs', value: string) {
     setFormData(prev => ({ ...prev, [field]: value }));
   }
 
@@ -239,6 +282,79 @@ export default function ProfileScreen() {
                     />
                   </div>
                   <div className="profile-edit-field">
+                    <label htmlFor="edit-clubs"><Search size={18} /> Organization / Club</label>
+                    <div className="profile-clubs-field" ref={clubDropdownRef}>
+                      <div className="profile-clubs-selected">
+                        {formData.clubs.split(',').filter(Boolean).map((clubKey) => {
+                          const club = clubOptions.find(c => c.key === clubKey);
+                          return club ? (
+                            <span key={club.key} className="profile-club-tag">
+                              {club.label}
+                              <button
+                                type="button"
+                                className="profile-club-remove"
+                                onClick={() => handleInputChange('clubs', formData.clubs.split(',').filter(k => k !== clubKey).join(','))}
+                                aria-label={`Remove ${club.label}`}
+                              >
+                                <X size={14} strokeWidth={2.5} />
+                              </button>
+                            </span>
+                          ) : null;
+                        })}
+                      </div>
+                      <div className="profile-club-search-wrap">
+                        <div className="profile-club-search-input-wrap">
+                          <Search size={18} strokeWidth={2} className="profile-club-search-icon" aria-hidden="true" />
+                          <input
+                            id="edit-clubs"
+                            type="text"
+                            className="profile-club-search-input"
+                            placeholder={clubLoading ? 'Loading clubs...' : 'Search and select clubs...'}
+                            value={clubSearch}
+                            onChange={e => {
+                              setClubSearch(e.target.value);
+                              setShowClubDropdown(true);
+                            }}
+                            onFocus={() => setShowClubDropdown(true)}
+                            autoComplete="off"
+                            disabled={clubLoading || saving}
+                          />
+                          {clubSearch && (
+                            <button
+                              type="button"
+                              className="profile-club-search-clear"
+                              onClick={() => setClubSearch('')}
+                              aria-label="Clear search"
+                            >
+                              <X size={16} strokeWidth={2.5} />
+                            </button>
+                          )}
+                        </div>
+                        {showClubDropdown && !clubLoading && (
+                          <div className="profile-club-dropdown" role="listbox" aria-label="Available clubs">
+                            {filteredClubs.length === 0 ? (
+                              <div className="profile-club-dropdown-empty">
+                                {clubSearch ? 'No matching clubs found' : 'All available clubs selected'}
+                              </div>
+                            ) : (
+                              filteredClubs.map((club) => (
+                                <button
+                                  key={club.key}
+                                  type="button"
+                                  className="profile-club-dropdown-item"
+                                  role="option"
+                                  onClick={() => handleInputChange('clubs', [...formData.clubs.split(',').filter(Boolean), club.key].join(','))}
+                                >
+                                  {club.label}
+                                </button>
+                              ))
+                            )}
+                          </div>
+                        )}
+                      </div>
+                    </div>
+                  </div>
+                  <div className="profile-edit-field">
                     <label><ShieldCheck size={18} /> Sign-in method</label>
                     <input
                       type="text"
@@ -271,6 +387,22 @@ export default function ProfileScreen() {
                   <div>
                     <dt><Phone size={18} /> Mobile number</dt>
                     <dd>{profile.mobileNumber}</dd>
+                  </div>
+                  <div>
+                    <dt><Search size={18} /> Organization / Club</dt>
+                    <dd>
+                      {profile.clubs ? (
+                        <div className="profile-clubs-display">
+                          {profile.clubs.split(',').map((clubKey) => (
+                            <span key={clubKey} className="profile-club-tag-display">
+                              {clubOptions.find(c => c.key === clubKey)?.label ?? clubKey}
+                            </span>
+                          ))}
+                        </div>
+                      ) : (
+                        <span className="profile-clubs-empty">No clubs selected</span>
+                      )}
+                    </dd>
                   </div>
                   <div>
                     <dt><ShieldCheck size={18} /> Sign-in method</dt>

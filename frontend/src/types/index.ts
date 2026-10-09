@@ -208,6 +208,7 @@ export interface ProfileResponse {
   fullName: string;
   email: string;
   mobileNumber: string;
+  clubs?: string;
 }
 
 export interface RegisterPayload {
@@ -215,6 +216,7 @@ export interface RegisterPayload {
   mobileNumber: string;
   email: string;
   password: string;
+  clubs?: string;
 }
 
 export interface SlotsResponse {
