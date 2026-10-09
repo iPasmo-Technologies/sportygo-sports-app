@@ -1,4 +1,4 @@
-import { useEffect, useState, useRef, useMemo, useCallback } from 'react';
+import { useEffect, useState, useRef, useMemo } from 'react';
 import {
   CalendarDays,
   ChevronRight,
@@ -76,7 +76,9 @@ export default function ProfileScreen() {
 
   // Memoize selected clubs for display
   const selectedClubs = useMemo(() => 
-    selectedClubKeys.map(key => clubOptionsMap.get(key)).filter(Boolean), 
+    selectedClubKeys
+      .map(key => clubOptionsMap.get(key))
+      .filter((club): club is ClubOption => club !== undefined), 
     [selectedClubKeys, clubOptionsMap]
   );
 
@@ -307,22 +309,19 @@ export default function ProfileScreen() {
                     <label htmlFor="edit-clubs"><Search size={18} /> Organization / Club</label>
                     <div className="profile-clubs-field" ref={clubDropdownRef}>
                       <div className="profile-clubs-selected">
-                        {formData.clubs.split(',').filter(Boolean).map((clubKey) => {
-                          const club = clubOptions.find(c => c.key === clubKey);
-                          return club ? (
-                            <span key={club.key} className="profile-club-tag">
-                              {club.label}
-                              <button
-                                type="button"
-                                className="profile-club-remove"
-                                onClick={() => handleInputChange('clubs', formData.clubs.split(',').filter(k => k !== clubKey).join(','))}
-                                aria-label={`Remove ${club.label}`}
-                              >
-                                <X size={14} strokeWidth={2.5} />
-                              </button>
-                            </span>
-                          ) : null;
-                        })}
+                        {selectedClubs.map((club) => (
+                          <span key={club.key} className="profile-club-tag">
+                            {club.label}
+                            <button
+                              type="button"
+                              className="profile-club-remove"
+                              onClick={() => handleInputChange('clubs', selectedClubKeys.filter(k => k !== club.key).join(','))}
+                              aria-label={`Remove ${club.label}`}
+                            >
+                              <X size={14} strokeWidth={2.5} />
+                            </button>
+                          </span>
+                        ))}
                       </div>
                       <div className="profile-club-search-wrap">
                         <div className="profile-club-search-input-wrap">
@@ -413,11 +412,11 @@ export default function ProfileScreen() {
                   <div>
                     <dt><Search size={18} /> Organization / Club</dt>
                     <dd>
-                      {profile.clubs ? (
+                      {selectedClubs.length > 0 ? (
                         <div className="profile-clubs-display">
-                          {profile.clubs.split(',').map((clubKey) => (
-                            <span key={clubKey} className="profile-club-tag-display">
-                              {clubOptions.find(c => c.key === clubKey)?.label ?? clubKey}
+                          {selectedClubs.map((club) => (
+                            <span key={club.key} className="profile-club-tag-display">
+                              {club.label}
                             </span>
                           ))}
                         </div>
