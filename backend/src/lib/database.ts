@@ -2382,7 +2382,8 @@ export async function findUserByEmail(email: string): Promise<UserAuthRow | null
             password_reset_code AS "passwordResetCode",
             password_reset_expires_at::text AS "passwordResetExpiresAt",
             auth_provider AS "authProvider",
-            role
+            role,
+            clubs
      FROM users
      WHERE deleted_at IS NULL
        AND LOWER(email) = LOWER($1)
@@ -2438,10 +2439,11 @@ export async function findUserByEmailOrMobile(loginId: string): Promise<UserAuth
             full_name AS "fullName",
             mobile_number AS "mobileNumber",
             password_encrypted AS "passwordEncrypted",
-                 password_reset_code AS "passwordResetCode",
-                 password_reset_expires_at::text AS "passwordResetExpiresAt",
+            password_reset_code AS "passwordResetCode",
+            password_reset_expires_at::text AS "passwordResetExpiresAt",
             auth_provider AS "authProvider",
-            role
+            role,
+            clubs
      FROM users
      WHERE deleted_at IS NULL
        AND (
@@ -2522,7 +2524,8 @@ export async function updateUserPasswordByEmailOrMobile(input: {
                password_reset_code AS "passwordResetCode",
                password_reset_expires_at::text AS "passwordResetExpiresAt",
                auth_provider AS "authProvider",
-               role`,
+               role,
+               clubs`,
     [normalizedLoginId, input.passwordEncrypted]
   );
 
@@ -2694,7 +2697,8 @@ export async function savePasswordResetCode(input: {
                password_reset_code AS "passwordResetCode",
                password_reset_expires_at::text AS "passwordResetExpiresAt",
                auth_provider AS "authProvider",
-               role`,
+               role,
+               clubs`,
     [normalizedEmail, input.code, input.expiresAtIso]
   );
 
@@ -2731,7 +2735,8 @@ export async function extendPasswordResetExpiry(email: string, expiresAtIso: str
                password_reset_code AS "passwordResetCode",
                password_reset_expires_at::text AS "passwordResetExpiresAt",
                auth_provider AS "authProvider",
-               role`,
+               role,
+               clubs`,
     [normalizedEmail, expiresAtIso]
   );
 
