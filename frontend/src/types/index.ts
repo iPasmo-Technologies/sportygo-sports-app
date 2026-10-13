@@ -175,7 +175,6 @@ export interface BookingPayload {
   facilityTag: string | null;
   lockToken?: string | null;
 }
-
 export interface StripePaymentIntentPayload {
   bookingType: BookingType;
   sportId?: SportId | null;
@@ -185,7 +184,6 @@ export interface StripePaymentIntentPayload {
   currency?: string;
   receiptId: string;
 }
-
 export interface StripeTestPaymentIntentPayload {
   amount: number;
   currency?: string;
@@ -324,12 +322,11 @@ export interface BookingHistoryItem {
   facilityMapLocationUrl: string | null;
   facilityImageKey: SportFacilityImageKey | null;
   facilityTag: string | null;
+  clubs?: string;
 }
-
 export interface BookingHistoryResponse {
   bookings: BookingHistoryItem[];
 }
-
 export interface AdminBookingItem {
   facilityTitle: string | null;
   facilityAddress: string | null;
