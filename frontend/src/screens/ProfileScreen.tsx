@@ -48,7 +48,7 @@ export default function ProfileScreen() {
   const [clubOptions, setClubOptions] = useState<{ key: string; label: string }[]>([]);
   const [clubSearch, setClubSearch] = useState('');
   const [showClubDropdown, setShowClubDropdown] = useState(false);
-  const [clubLoading, setClubLoading] = useState(true);
+  const [clubLoading, setClubLoading] = useState(false);
   const clubDropdownRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
@@ -59,7 +59,6 @@ export default function ProfileScreen() {
 
     let cancelled = false;
     setLoading(true);
-    setClubLoading(true);
 
     fetchProfile(state.authToken)
       .then((response) => {
@@ -87,6 +86,18 @@ export default function ProfileScreen() {
         if (!cancelled) setLoading(false);
       });
 
+    return () => {
+      cancelled = true;
+    };
+  }, [dispatch, navigate, state.authToken]);
+
+  // Fetch clubs only when entering edit mode
+  useEffect(() => {
+    if (!editMode) return;
+
+    let cancelled = false;
+    setClubLoading(true);
+
     fetchClubs()
       .then((data) => {
         if (!cancelled) {
@@ -104,7 +115,7 @@ export default function ProfileScreen() {
     return () => {
       cancelled = true;
     };
-  }, [dispatch, navigate, state.authToken]);
+  }, [editMode]);
 
   function logOut() {
     dispatch({ type: 'LOG_OUT' });
