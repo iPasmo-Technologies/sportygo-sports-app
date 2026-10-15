@@ -87,24 +87,29 @@ export default function ProfileScreen() {
         if (!cancelled) setLoading(false);
       });
 
-    fetchClubs()
-      .then((data) => {
-        if (!cancelled) {
-          const options = Object.entries(data).map(([key, label]) => ({ key, label }));
-          setClubOptions(options);
-        }
-      })
-      .catch(() => {
-        if (!cancelled) setClubOptions([]);
-      })
-      .finally(() => {
-        if (!cancelled) setClubLoading(false);
-      });
+    // Only fetch clubs when in edit mode
+    if (editMode) {
+      fetchClubs()
+        .then((data) => {
+          if (!cancelled) {
+            const options = Object.entries(data).map(([key, label]) => ({ key, label }));
+            setClubOptions(options);
+          }
+        })
+        .catch(() => {
+          if (!cancelled) setClubOptions([]);
+        })
+        .finally(() => {
+          if (!cancelled) setClubLoading(false);
+        });
+    } else {
+      setClubLoading(false);
+    }
 
     return () => {
       cancelled = true;
     };
-  }, [dispatch, navigate, state.authToken]);
+  }, [dispatch, navigate, state.authToken, editMode]);
 
   function logOut() {
     dispatch({ type: 'LOG_OUT' });
@@ -114,6 +119,19 @@ export default function ProfileScreen() {
   function handleEditClick() {
     setEditMode(true);
     setSuccess(null);
+    // Fetch clubs when entering edit mode
+    setClubLoading(true);
+    fetchClubs()
+      .then((data) => {
+        const options = Object.entries(data).map(([key, label]) => ({ key, label }));
+        setClubOptions(options);
+      })
+      .catch(() => {
+        setClubOptions([]);
+      })
+      .finally(() => {
+        setClubLoading(false);
+      });
   }
 
   function handleCancelEdit() {
