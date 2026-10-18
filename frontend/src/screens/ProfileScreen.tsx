@@ -119,19 +119,7 @@ export default function ProfileScreen() {
   function handleEditClick() {
     setEditMode(true);
     setSuccess(null);
-    // Fetch clubs when entering edit mode
-    setClubLoading(true);
-    fetchClubs()
-      .then((data) => {
-        const options = Object.entries(data).map(([key, label]) => ({ key, label }));
-        setClubOptions(options);
-      })
-      .catch(() => {
-        setClubOptions([]);
-      })
-      .finally(() => {
-        setClubLoading(false);
-      });
+    // Clubs will be fetched by the useEffect when editMode becomes true
   }
 
   function handleCancelEdit() {
