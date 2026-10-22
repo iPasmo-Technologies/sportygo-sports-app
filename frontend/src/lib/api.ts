@@ -23,6 +23,9 @@ import type {
   StripePaymentIntentResponse,
   StripeTestPaymentIntentPayload,
   SportId,
+  PromoCode,
+  PromoCodeValidationResult,
+  PromoCodeUsageRecord,
 } from '@/types';
 import { markLocalBooked, mergeWithLocalBooked, unmarkLocalBooked } from './localBookedSlots';
 import { encryptPasswordForTransport } from './authCrypto';
@@ -562,4 +565,44 @@ export async function rescheduleMyBooking(
   unmarkLocalBooked(booking.sportId, booking.facilityCode, booking.slotDate, booking.slotTime.slice(0, 5));
   markLocalBooked(booking.sportId, booking.facilityCode, selectedDate, selectedTime);
   return response;
+}
+
+// ─── Promo Codes ──────────────────────────────────────────────────
+
+export async function fetchPromoCodes(): Promise<PromoCode[]> {
+  return request<PromoCode[]>('/api/promo-codes', {
+    method: 'GET',
+  });
+}
+
+export async function validatePromoCode(input: {
+  code: string;
+  userEmail: string;
+  bookingAmount: number;
+  sportId?: string;
+  facilityCode?: string;
+  bookingType?: string;
+}): Promise<PromoCodeValidationResult> {
+  return request<PromoCodeValidationResult>('/api/promo-codes/validate', {
+    method: 'POST',
+    body: JSON.stringify(input),
+  });
+}
+
+export async function applyPromoCode(input: {
+  promoCodeId: string;
+  userEmail: string;
+  bookingId: string;
+  discountAmount: number;
+}): Promise<PromoCodeUsageRecord> {
+  return request<PromoCodeUsageRecord>('/api/promo-codes/apply', {
+    method: 'POST',
+    body: JSON.stringify(input),
+  });
+}
+
+export async function fetchUserPromoCodeUsage(userEmail: string): Promise<PromoCodeUsageRecord[]> {
+  return request<PromoCodeUsageRecord[]>(`/api/promo-codes/usage/${encodeURIComponent(userEmail)}`, {
+    method: 'GET',
+  });
 }

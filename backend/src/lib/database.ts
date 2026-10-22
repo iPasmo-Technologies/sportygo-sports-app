@@ -93,6 +93,8 @@ export type BookingHistoryRow = {
   facilityMapLocationUrl: string | null;
   facilityImageKey: SportFacilityRow['imageKey'] | null;
   facilityTag: string | null;
+  promoCode: string | null;
+  discountAmount: number;
 };
 
 export type AdminBookingRow = {
@@ -132,6 +134,8 @@ type BookingInput = {
   facilityImageKey?: SportFacilityRow['imageKey'] | null;
   facilityTag?: string | null;
   lockToken?: string | null;
+  promoCode?: string | null;
+  discountAmount?: number;
 };
 
 export type ConfigValueType = 'STRING' | 'INTEGER' | 'DECIMAL' | 'BOOLEAN' | 'JSON';
@@ -196,6 +200,41 @@ export type AdminBlockRuleRow = {
   source: 'admin' | 'system-seed' | 'legacy';
   active: boolean;
   editable: boolean;
+  createdAt: string;
+};
+
+export type PromoCodeRow = {
+  id: string;
+  code: string;
+  name: string;
+  description: string | null;
+  discountType: 'percentage' | 'fixed_amount';
+  discountValue: number;
+  maxDiscountAmount: number | null;
+  minBookingAmount: number;
+  maxUsesTotal: number | null;
+  maxUsesPerUser: number;
+  usedCount: number;
+  applicableSports: string[];
+  applicableFacilities: string[];
+  applicableBookingTypes: string[];
+  validFrom: string;
+  validUntil: string;
+  isActive: boolean;
+  createdAt: string;
+  updatedAt: string;
+  deletedAt: string | null;
+  createdBy: string;
+  updatedBy: string;
+};
+
+export type PromoCodeUsageRow = {
+  id: string;
+  promoCodeId: string;
+  userEmail: string;
+  bookingId: string | null;
+  discountAmount: number;
+  usedAt: string;
   createdAt: string;
 };
 
@@ -1259,6 +1298,68 @@ async function ensureSchema(client: PoolClient): Promise<void> {
       ('APP', 'TERMS_VERSION')
     )
   `);
+
+  // Promo codes table for membership/promo code discounts
+  await client.query(`
+    CREATE TABLE IF NOT EXISTS promo_codes (
+      id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+      code TEXT NOT NULL UNIQUE,
+      name TEXT NOT NULL,
+      description TEXT,
+      discount_type TEXT NOT NULL CHECK (discount_type IN ('percentage', 'fixed_amount')),
+      discount_value NUMERIC(12,2) NOT NULL CHECK (discount_value > 0),
+      max_discount_amount NUMERIC(12,2),
+      min_booking_amount NUMERIC(12,2) DEFAULT 0,
+      max_uses_total INTEGER,
+      max_uses_per_user INTEGER DEFAULT 1,
+      used_count INTEGER NOT NULL DEFAULT 0,
+      applicable_sports TEXT[] DEFAULT '{}',
+      applicable_facilities TEXT[] DEFAULT '{}',
+      applicable_booking_types TEXT[] DEFAULT '{}',
+      valid_from TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+      valid_until TIMESTAMPTZ NOT NULL,
+      is_active BOOLEAN NOT NULL DEFAULT TRUE,
+      created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+      updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+      deleted_at TIMESTAMPTZ NULL,
+      created_by TEXT NOT NULL DEFAULT 'system',
+      updated_by TEXT NOT NULL DEFAULT 'system',
+      CHECK (valid_until > valid_from)
+    )
+  `);
+
+  await client.query(`
+    CREATE INDEX IF NOT EXISTS idx_promo_codes_code
+    ON promo_codes (code) WHERE deleted_at IS NULL
+  `);
+
+  await client.query(`
+    CREATE INDEX IF NOT EXISTS idx_promo_codes_active
+    ON promo_codes (is_active, valid_from, valid_until) WHERE deleted_at IS NULL
+  `);
+
+  // Promo code usage tracking table
+  await client.query(`
+    CREATE TABLE IF NOT EXISTS promo_code_usage (
+      id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+      promo_code_id UUID NOT NULL REFERENCES promo_codes(id) ON DELETE CASCADE,
+      user_email TEXT NOT NULL,
+      booking_id UUID REFERENCES bookings(id) ON DELETE SET NULL,
+      discount_amount NUMERIC(12,2) NOT NULL,
+      used_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+      created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    )
+  `);
+
+  await client.query(`
+    CREATE INDEX IF NOT EXISTS idx_promo_code_usage_promo_code
+    ON promo_code_usage (promo_code_id)
+  `);
+
+  await client.query(`
+    CREATE INDEX IF NOT EXISTS idx_promo_code_usage_user
+    ON promo_code_usage (user_email)
+  `);
 }
 
 async function ensureInitialAdminUser(client: PoolClient): Promise<void> {
@@ -2014,9 +2115,11 @@ export async function saveBooking(input: BookingInput): Promise<void> {
            facility_tag,
            status,
            payment_method,
+           promo_code,
+           discount_amount,
            created_by,
            updated_by
-         ) VALUES ($1, $2, $3, $4, $5::time, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19)`,
+         ) VALUES ($1, $2, $3, $4, $5::time, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21)`,
         [
           input.bookingType,
           input.sportId ?? null,
@@ -2035,6 +2138,8 @@ export async function saveBooking(input: BookingInput): Promise<void> {
           input.facilityTag ?? null,
           input.bookingStatus,
           input.paymentMethod,
+          input.promoCode ?? null,
+          input.discountAmount ?? 0,
           customerEmail,
           customerEmail,
         ]
@@ -2080,7 +2185,9 @@ export async function listBookingsByCustomer(customerEmail: string): Promise<Boo
        COALESCE(facility.image_key, booking.facility_image_key) AS "facilityImageKey",
        COALESCE(facility.tag_label, booking.facility_tag) AS "facilityTag",
        booking.status,
-       booking.payment_method AS "paymentMethod"
+       booking.payment_method AS "paymentMethod",
+       booking.promo_code AS "promoCode",
+       booking.discount_amount AS "discountAmount"
      FROM bookings AS booking
      LEFT JOIN sport_facilities AS facility
        ON facility.sport_id = booking.sport_id
@@ -2983,4 +3090,261 @@ export async function releaseReservation(lockToken: string, customerEmail: strin
        AND status = 'pending'`,
     [lockToken, customerEmail]
   );
+}
+
+// ─── Promo Code Service ────────────────────────────────────
+
+export async function createPromoCode(input: {
+  code: string;
+  name: string;
+  description?: string;
+  discountType: 'percentage' | 'fixed_amount';
+  discountValue: number;
+  maxDiscountAmount?: number;
+  minBookingAmount?: number;
+  maxUsesTotal?: number;
+  maxUsesPerUser?: number;
+  applicableSports?: string[];
+  applicableFacilities?: string[];
+  applicableBookingTypes?: string[];
+  validFrom: string;
+  validUntil: string;
+  isActive?: boolean;
+  createdBy: string;
+}): Promise<PromoCodeRow> {
+  if (!pool) {
+    throw new Error('Database not configured');
+  }
+
+  const normalizedCode = input.code.trim().toUpperCase();
+
+  const rows = await query<PromoCodeRow>(
+    `INSERT INTO promo_codes (
+       code, name, description, discount_type, discount_value, max_discount_amount,
+       min_booking_amount, max_uses_total, max_uses_per_user,
+       applicable_sports, applicable_facilities, applicable_booking_types,
+       valid_from, valid_until, is_active, created_by, updated_by
+     ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13::timestamptz, $14::timestamptz, $15, $16, $16)
+     RETURNING id, code, name, description, discount_type AS "discountType", discount_value AS "discountValue",
+               max_discount_amount AS "maxDiscountAmount", min_booking_amount AS "minBookingAmount",
+               max_uses_total AS "maxUsesTotal", max_uses_per_user AS "maxUsesPerUser",
+               used_count AS "usedCount", applicable_sports AS "applicableSports",
+               applicable_facilities AS "applicableFacilities", applicable_booking_types AS "applicableBookingTypes",
+               valid_from::text AS "validFrom", valid_until::text AS "validUntil",
+               is_active AS "isActive", created_at::text AS "createdAt", updated_at::text AS "updatedAt",
+               deleted_at::text AS "deletedAt", created_by AS "createdBy", updated_by AS "updatedBy"`,
+    [
+      normalizedCode,
+      input.name.trim(),
+      input.description?.trim() ?? null,
+      input.discountType,
+      input.discountValue,
+      input.maxDiscountAmount ?? null,
+      input.minBookingAmount ?? 0,
+      input.maxUsesTotal ?? null,
+      input.maxUsesPerUser ?? 1,
+      input.applicableSports ?? [],
+      input.applicableFacilities ?? [],
+      input.applicableBookingTypes ?? [],
+      input.validFrom,
+      input.validUntil,
+      input.isActive ?? true,
+      input.createdBy,
+    ]
+  );
+
+  return rows[0];
+}
+
+export async function getPromoCodeByCode(code: string): Promise<PromoCodeRow | null> {
+  if (!pool) return null;
+
+  const rows = await query<PromoCodeRow>(
+    `SELECT id, code, name, description, discount_type AS "discountType", discount_value AS "discountValue",
+            max_discount_amount AS "maxDiscountAmount", min_booking_amount AS "minBookingAmount",
+            max_uses_total AS "maxUsesTotal", max_uses_per_user AS "maxUsesPerUser",
+            used_count AS "usedCount", applicable_sports AS "applicableSports",
+            applicable_facilities AS "applicableFacilities", applicable_booking_types AS "applicableBookingTypes",
+            valid_from::text AS "validFrom", valid_until::text AS "validUntil",
+            is_active AS "isActive", created_at::text AS "createdAt", updated_at::text AS "updatedAt",
+            deleted_at::text AS "deletedAt", created_by AS "createdBy", updated_by AS "updatedBy"
+     FROM promo_codes
+     WHERE deleted_at IS NULL
+       AND code = $1
+     LIMIT 1`,
+    [code.trim().toUpperCase()]
+  );
+
+  return rows[0] ?? null;
+}
+
+export async function listPromoCodes(): Promise<PromoCodeRow[]> {
+  if (!pool) return [];
+
+  const rows = await query<PromoCodeRow>(
+    `SELECT id, code, name, description, discount_type AS "discountType", discount_value AS "discountValue",
+            max_discount_amount AS "maxDiscountAmount", min_booking_amount AS "minBookingAmount",
+            max_uses_total AS "maxUsesTotal", max_uses_per_user AS "maxUsesPerUser",
+            used_count AS "usedCount", applicable_sports AS "applicableSports",
+            applicable_facilities AS "applicableFacilities", applicable_booking_types AS "applicableBookingTypes",
+            valid_from::text AS "validFrom", valid_until::text AS "validUntil",
+            is_active AS "isActive", created_at::text AS "createdAt", updated_at::text AS "updatedAt",
+            deleted_at::text AS "deletedAt", created_by AS "createdBy", updated_by AS "updatedBy"
+     FROM promo_codes
+     WHERE deleted_at IS NULL
+     ORDER BY created_at DESC`
+  );
+
+  return rows;
+}
+
+export async function validatePromoCode(input: {
+  code: string;
+  userEmail: string;
+  bookingAmount: number;
+  sportId?: string;
+  facilityCode?: string;
+  bookingType?: string;
+}): Promise<{ valid: boolean; promoCode?: PromoCodeRow; error?: string; discountAmount?: number }> {
+  if (!pool) {
+    return { valid: false, error: 'Database not configured' };
+  }
+
+  const promoCode = await getPromoCodeByCode(input.code);
+  if (!promoCode) {
+    return { valid: false, error: 'Invalid promo code' };
+  }
+
+  if (!promoCode.isActive) {
+    return { valid: false, error: 'Promo code is not active' };
+  }
+
+  const now = new Date();
+  const validFrom = new Date(promoCode.validFrom);
+  const validUntil = new Date(promoCode.validUntil);
+
+  if (now < validFrom) {
+    return { valid: false, error: 'Promo code is not yet valid' };
+  }
+
+  if (now > validUntil) {
+    return { valid: false, error: 'Promo code has expired' };
+  }
+
+  if (promoCode.maxUsesTotal !== null && promoCode.usedCount >= promoCode.maxUsesTotal) {
+    return { valid: false, error: 'Promo code has reached maximum usage limit' };
+  }
+
+  if (input.bookingAmount < promoCode.minBookingAmount) {
+    return { valid: false, error: `Minimum booking amount of $${promoCode.minBookingAmount} required` };
+  }
+
+  if (promoCode.applicableSports.length > 0 && input.sportId && !promoCode.applicableSports.includes(input.sportId)) {
+    return { valid: false, error: 'Promo code not applicable to this sport' };
+  }
+
+  if (promoCode.applicableFacilities.length > 0 && input.facilityCode && !promoCode.applicableFacilities.includes(input.facilityCode)) {
+    return { valid: false, error: 'Promo code not applicable to this facility' };
+  }
+
+  if (promoCode.applicableBookingTypes.length > 0 && input.bookingType && !promoCode.applicableBookingTypes.includes(input.bookingType)) {
+    return { valid: false, error: 'Promo code not applicable to this booking type' };
+  }
+
+  // Check user usage limit
+  const userUsageResult = await query<{ count: string }>(
+    `SELECT COUNT(*)::text AS count
+     FROM promo_code_usage
+     WHERE promo_code_id = $1 AND user_email = $2`,
+    [promoCode.id, input.userEmail.trim().toLowerCase()]
+  );
+
+  const userUsageCount = parseInt(userUsageResult[0]?.count ?? '0', 10);
+  if (userUsageCount >= promoCode.maxUsesPerUser) {
+    return { valid: false, error: 'You have already used this promo code the maximum number of times' };
+  }
+
+  // Calculate discount amount
+  let discountAmount = 0;
+  if (promoCode.discountType === 'percentage') {
+    discountAmount = Math.round(input.bookingAmount * (promoCode.discountValue / 100));
+    if (promoCode.maxDiscountAmount !== null) {
+      discountAmount = Math.min(discountAmount, promoCode.maxDiscountAmount);
+    }
+  } else {
+    discountAmount = promoCode.discountValue;
+  }
+
+  // Ensure discount doesn't exceed booking amount
+  discountAmount = Math.min(discountAmount, input.bookingAmount);
+
+  return { valid: true, promoCode, discountAmount };
+}
+
+export async function applyPromoCode(input: {
+  promoCodeId: string;
+  userEmail: string;
+  bookingId: string;
+  discountAmount: number;
+}): Promise<PromoCodeUsageRow | null> {
+  if (!pool) return null;
+
+  return withDatabaseClient(async (client) => {
+    await client.query('BEGIN');
+    try {
+      // Record the usage
+      const usageResult = await client.query<PromoCodeUsageRow>(
+        `INSERT INTO promo_code_usage (promo_code_id, user_email, booking_id, discount_amount)
+         VALUES ($1, $2, $3, $4)
+         RETURNING id, promo_code_id AS "promoCodeId", user_email AS "userEmail",
+                   booking_id AS "bookingId", discount_amount AS "discountAmount",
+                   used_at::text AS "usedAt", created_at::text AS "createdAt"`,
+        [input.promoCodeId, input.userEmail.trim().toLowerCase(), input.bookingId, input.discountAmount]
+      );
+
+      // Increment used count
+      await client.query(
+        `UPDATE promo_codes SET used_count = used_count + 1, updated_at = NOW(), updated_by = $2 WHERE id = $1`,
+        [input.promoCodeId, input.userEmail]
+      );
+
+      await client.query('COMMIT');
+      return usageResult.rows[0];
+    } catch (error) {
+      await client.query('ROLLBACK');
+      throw error;
+    }
+  });
+}
+
+export async function getPromoCodeUsage(promoCodeId: string): Promise<PromoCodeUsageRow[]> {
+  if (!pool) return [];
+
+  const rows = await query<PromoCodeUsageRow>(
+    `SELECT id, promo_code_id AS "promoCodeId", user_email AS "userEmail",
+            booking_id AS "bookingId", discount_amount AS "discountAmount",
+            used_at::text AS "usedAt", created_at::text AS "createdAt"
+     FROM promo_code_usage
+     WHERE promo_code_id = $1
+     ORDER BY used_at DESC`,
+    [promoCodeId]
+  );
+
+  return rows;
+}
+
+export async function getUserPromoCodeUsage(userEmail: string): Promise<PromoCodeUsageRow[]> {
+  if (!pool) return [];
+
+  const rows = await query<PromoCodeUsageRow>(
+    `SELECT id, promo_code_id AS "promoCodeId", user_email AS "userEmail",
+            booking_id AS "bookingId", discount_amount AS "discountAmount",
+            used_at::text AS "usedAt", created_at::text AS "createdAt"
+     FROM promo_code_usage
+     WHERE user_email = $1
+     ORDER BY used_at DESC`,
+    [userEmail.trim().toLowerCase()]
+  );
+
+  return rows;
 }

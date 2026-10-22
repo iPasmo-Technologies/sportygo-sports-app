@@ -11,6 +11,7 @@ import packagesRoutes from './routes/packages';
 import sportsRoutes   from './routes/sports';
 import configRoutes   from './routes/config';
 import devRoutes      from './routes/dev';
+import promoCodesRoutes from './routes/promo-codes';
 import { isDatabaseConfigured } from './lib/database';
 
 const app  = express();
@@ -73,6 +74,7 @@ app.use('/api/packages', packagesRoutes);
 app.use('/api/sports',   sportsRoutes);
 app.use('/api/config',   configRoutes);
 app.use('/api/dev',      devRoutes);
+app.use('/api/promo-codes', promoCodesRoutes);
 
 // ── Health check ──────────────────────────────────────────────
 app.get('/api/health', (_req, res) => {
