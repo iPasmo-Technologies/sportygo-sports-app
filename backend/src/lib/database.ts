@@ -93,6 +93,7 @@ export type BookingHistoryRow = {
   facilityMapLocationUrl: string | null;
   facilityImageKey: SportFacilityRow['imageKey'] | null;
   facilityTag: string | null;
+  clubs: string | null;
 };
 
 export type AdminBookingRow = {
@@ -111,6 +112,7 @@ export type AdminBookingRow = {
   createdAt: string;
   updatedAt: string;
   mobileNumber: string | null;
+  clubs: string | null;
 };
 
 type BookingInput = {
@@ -159,6 +161,7 @@ export type UserAuthRow = {
   role: 'public' | 'coach' | 'admin';
   passwordResetCode?: string | null;
   passwordResetExpiresAt?: string | null;
+  clubs?: string | null;
 };
 
 export type AdminUserRow = {
@@ -166,6 +169,7 @@ export type AdminUserRow = {
   email: string;
   mobileNumber: string;
   passwordResetCode: string | null;
+  clubs: string | null;
 };
 
 export type AdminSlotBlockResult = {
@@ -270,6 +274,22 @@ type SystemConfigSeed = {
 const DEFAULT_SYSTEM_CONFIGS: SystemConfigSeed[] = [
   { configType: 'RESERVATION', configKey: 'SLOT_LOCK_DURATION_MINS',  configValue: '10',   valueType: 'INTEGER', description: 'Minutes a slot is held after reservation before auto-expiry' },
   { configType: 'PAYMENTS', configKey: 'PAYMENT_TEST_MODE_ENABLED',   configValue: 'true', valueType: 'BOOLEAN', description: 'Whether the developer-only custom-amount Stripe test endpoint is active' },
+  // Club/Organization data for user affiliation
+  { configType: 'CLUBS', configKey: 'SINGAPORE_CRICKET_CLUB', configValue: 'Singapore Cricket Club', valueType: 'STRING', description: 'Singapore Cricket Club' },
+  { configType: 'CLUBS', configKey: 'SINGAPORE_RECREATION_CLUB', configValue: 'Singapore Recreation Club', valueType: 'STRING', description: 'Singapore Recreation Club' },
+  { configType: 'CLUBS', configKey: 'TANGLIN_CLUB', configValue: 'Tanglin Club', valueType: 'STRING', description: 'Tanglin Club' },
+  { configType: 'CLUBS', configKey: 'AMERICAN_CLUB', configValue: 'American Club', valueType: 'STRING', description: 'American Club' },
+  { configType: 'CLUBS', configKey: 'BRITISH_CLUB', configValue: 'British Club', valueType: 'STRING', description: 'British Club' },
+  { configType: 'CLUBS', configKey: 'DUTCH_CLUB', configValue: 'Dutch Club', valueType: 'STRING', description: 'Dutch Club' },
+  { configType: 'CLUBS', configKey: 'JAPANESE_ASSOCIATION', configValue: 'Japanese Association', valueType: 'STRING', description: 'Japanese Association' },
+  { configType: 'CLUBS', configKey: 'CHINESE_SWIMMING_CLUB', configValue: 'Chinese Swimming Club', valueType: 'STRING', description: 'Chinese Swimming Club' },
+  { configType: 'CLUBS', configKey: 'SINGAPORE_SWIMMING_CLUB', configValue: 'Singapore Swimming Club', valueType: 'STRING', description: 'Singapore Swimming Club' },
+  { configType: 'CLUBS', configKey: 'SELETAR_COUNTRY_CLUB', configValue: 'Seletar Country Club', valueType: 'STRING', description: 'Seletar Country Club' },
+  { configType: 'CLUBS', configKey: 'KEPPEL_CLUB', configValue: 'Keppel Club', valueType: 'STRING', description: 'Keppel Club' },
+  { configType: 'CLUBS', configKey: 'SINGAPORE_ISLAND_COUNTRY_CLUB', configValue: 'Singapore Island Country Club', valueType: 'STRING', description: 'Singapore Island Country Club' },
+  { configType: 'CLUBS', configKey: 'LAGUNA_NATIONAL_GOLF_CLUB', configValue: 'Laguna National Golf & Country Club', valueType: 'STRING', description: 'Laguna National Golf & Country Club' },
+  { configType: 'CLUBS', configKey: 'SENTOSA_GOLF_CLUB', configValue: 'Sentosa Golf Club', valueType: 'STRING', description: 'Sentosa Golf Club' },
+  { configType: 'CLUBS', configKey: 'TANJONG_PAGAR_CENTRE', configValue: 'Tanjong Pagar Centre', valueType: 'STRING', description: 'Tanjong Pagar Centre' },
 ];
 const WEEKDAY_NAMES = ['sunday', 'monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday'] as const;
 const DEFAULT_WEEKDAY_SLOT_WINDOWS: Record<(typeof WEEKDAY_NAMES)[number], { startTime: string; endTime: string }> = {
@@ -652,6 +672,7 @@ async function ensureSchema(client: PoolClient): Promise<void> {
       password_reset_expires_at TIMESTAMPTZ NULL,
       auth_provider TEXT NOT NULL DEFAULT 'password' CHECK (auth_provider IN ('password', 'google')),
       role TEXT NOT NULL DEFAULT 'public' CHECK (role IN ('public', 'coach', 'admin')),
+      clubs TEXT NULL,
       created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
       updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
       deleted_at TIMESTAMPTZ NULL,
@@ -714,6 +735,11 @@ async function ensureSchema(client: PoolClient): Promise<void> {
   await client.query(`
     ALTER TABLE users
     ALTER COLUMN password_encrypted SET NOT NULL
+  `);
+
+  await client.query(`
+    ALTER TABLE users
+    ADD COLUMN IF NOT EXISTS clubs TEXT
   `);
 
   await client.query(`
@@ -2080,12 +2106,14 @@ export async function listBookingsByCustomer(customerEmail: string): Promise<Boo
        COALESCE(facility.image_key, booking.facility_image_key) AS "facilityImageKey",
        COALESCE(facility.tag_label, booking.facility_tag) AS "facilityTag",
        booking.status,
-       booking.payment_method AS "paymentMethod"
+       booking.payment_method AS "paymentMethod",
+       users.clubs
      FROM bookings AS booking
      LEFT JOIN sport_facilities AS facility
        ON facility.sport_id = booking.sport_id
       AND facility.facility_code = booking.facility_code
       AND facility.deleted_at IS NULL
+     LEFT JOIN users ON users.email = booking.customer_email AND users.deleted_at IS NULL
      WHERE booking.deleted_at IS NULL
        AND LOWER(BTRIM(booking.customer_email)) = $1
      ORDER BY booking.slot_date DESC, booking.slot_time DESC`,
@@ -2113,7 +2141,8 @@ export async function listAllBookingsForAdmin(): Promise<AdminBookingRow[]> {
                  booking.status,
                  booking.created_at::text AS "createdAt",
                  booking.updated_at::text AS "updatedAt",
-                 users.mobile_number AS "mobileNumber"
+                 users.mobile_number AS "mobileNumber",
+                 users.clubs
      FROM bookings AS booking
      LEFT JOIN users ON users.email = booking.customer_email AND users.deleted_at IS NULL
      WHERE booking.deleted_at IS NULL
@@ -2356,7 +2385,8 @@ export async function findUserByEmail(email: string): Promise<UserAuthRow | null
             password_reset_code AS "passwordResetCode",
             password_reset_expires_at::text AS "passwordResetExpiresAt",
             auth_provider AS "authProvider",
-            role
+            role,
+            clubs
      FROM users
      WHERE deleted_at IS NULL
        AND LOWER(email) = LOWER($1)
@@ -2374,6 +2404,7 @@ export async function listAllUsersForAdmin(): Promise<AdminUserRow[]> {
       email: user.email,
       mobileNumber: user.mobileNumber,
       passwordResetCode: user.passwordResetCode ?? null,
+      clubs: user.clubs ?? null,
     }));
   }
 
@@ -2381,7 +2412,8 @@ export async function listAllUsersForAdmin(): Promise<AdminUserRow[]> {
     `SELECT full_name AS "fullName",
             email,
             mobile_number AS "mobileNumber",
-            password_reset_code AS "passwordResetCode"
+            password_reset_code AS "passwordResetCode",
+            clubs
      FROM users
      WHERE deleted_at IS NULL
      ORDER BY full_name ASC, email ASC`
@@ -2412,10 +2444,11 @@ export async function findUserByEmailOrMobile(loginId: string): Promise<UserAuth
             full_name AS "fullName",
             mobile_number AS "mobileNumber",
             password_encrypted AS "passwordEncrypted",
-                 password_reset_code AS "passwordResetCode",
-                 password_reset_expires_at::text AS "passwordResetExpiresAt",
+            password_reset_code AS "passwordResetCode",
+            password_reset_expires_at::text AS "passwordResetExpiresAt",
             auth_provider AS "authProvider",
-            role
+            role,
+            clubs
      FROM users
      WHERE deleted_at IS NULL
        AND (
@@ -2496,7 +2529,8 @@ export async function updateUserPasswordByEmailOrMobile(input: {
                password_reset_code AS "passwordResetCode",
                password_reset_expires_at::text AS "passwordResetExpiresAt",
                auth_provider AS "authProvider",
-               role`,
+               role,
+               clubs`,
     [normalizedLoginId, input.passwordEncrypted]
   );
 
@@ -2507,6 +2541,7 @@ export async function updateUserProfile(input: {
   email: string;
   fullName: string;
   mobileNumber: string;
+  clubs?: string;
 }): Promise<UserAuthRow | null> {
   const normalizedEmail = input.email.trim().toLowerCase();
   const normalizedFullName = input.fullName.trim();
@@ -2531,6 +2566,7 @@ export async function updateUserProfile(input: {
       ...existing,
       fullName: normalizedFullName,
       mobileNumber: normalizedMobileNumber,
+      clubs: input.clubs ?? existing.clubs ?? null,
     };
 
     fallbackUsers.set(normalizedEmail, updated);
@@ -2541,6 +2577,7 @@ export async function updateUserProfile(input: {
     `UPDATE users
      SET full_name = $2,
          mobile_number = $3,
+         clubs = $4,
          updated_at = NOW(),
          updated_by = email
      WHERE deleted_at IS NULL
@@ -2553,8 +2590,9 @@ export async function updateUserProfile(input: {
                password_reset_code AS "passwordResetCode",
                password_reset_expires_at::text AS "passwordResetExpiresAt",
                auth_provider AS "authProvider",
-               role`,
-    [normalizedEmail, normalizedFullName, normalizedMobileNumber]
+               role,
+               clubs`,
+    [normalizedEmail, normalizedFullName, normalizedMobileNumber, input.clubs ?? null]
   );
 
   return rows[0] ?? null;
@@ -2565,6 +2603,7 @@ export async function createUserPasswordAccount(input: {
   fullName: string;
   mobileNumber: string;
   passwordEncrypted: string;
+  clubs?: string;
 }): Promise<UserAuthRow> {
   if (!pool) {
     const key = input.email.toLowerCase();
@@ -2583,6 +2622,7 @@ export async function createUserPasswordAccount(input: {
       role: 'public',
       passwordResetCode: null,
       passwordResetExpiresAt: null,
+      clubs: input.clubs ?? null,
     };
 
     fallbackUsers.set(key, user);
@@ -2597,9 +2637,10 @@ export async function createUserPasswordAccount(input: {
        password_encrypted,
        auth_provider,
        role,
+       clubs,
        created_by,
        updated_by
-     ) VALUES ($1, $2, $3, $4, 'password', 'public', $1, $1)
+     ) VALUES ($1, $2, $3, $4, 'password', 'public', $5, $1, $1)
      ON CONFLICT (email) DO NOTHING
      RETURNING id,
                email,
@@ -2609,8 +2650,9 @@ export async function createUserPasswordAccount(input: {
                password_reset_code AS "passwordResetCode",
                password_reset_expires_at::text AS "passwordResetExpiresAt",
                auth_provider AS "authProvider",
-               role`,
-    [input.email, input.fullName, input.mobileNumber, input.passwordEncrypted]
+               role,
+               clubs`,
+    [input.email, input.fullName, input.mobileNumber, input.passwordEncrypted, input.clubs ?? null]
   );
 
   const created = rows[0];
@@ -2660,7 +2702,8 @@ export async function savePasswordResetCode(input: {
                password_reset_code AS "passwordResetCode",
                password_reset_expires_at::text AS "passwordResetExpiresAt",
                auth_provider AS "authProvider",
-               role`,
+               role,
+               clubs`,
     [normalizedEmail, input.code, input.expiresAtIso]
   );
 
@@ -2697,7 +2740,8 @@ export async function extendPasswordResetExpiry(email: string, expiresAtIso: str
                password_reset_code AS "passwordResetCode",
                password_reset_expires_at::text AS "passwordResetExpiresAt",
                auth_provider AS "authProvider",
-               role`,
+               role,
+               clubs`,
     [normalizedEmail, expiresAtIso]
   );
 

@@ -31,7 +31,7 @@ function buildWhatsAppLink(normalizedMobileNumber: string, fullName: string): st
 
 function matchesSearch(user: AdminUserRow, query: string): boolean {
   if (!query) return true;
-  const haystack = `${user.fullName} ${user.email} ${user.mobileNumber}`.toLowerCase();
+  const haystack = `${user.fullName} ${user.email} ${user.mobileNumber} ${user.clubs ?? ''}`.toLowerCase();
   return haystack.includes(query.toLowerCase());
 }
 
@@ -145,6 +145,7 @@ export default function ViewUsersScreen() {
                     <MessageCircle size={14} aria-hidden="true" />
                     <span>{normalizedMobileNumber}</span>
                   </a>
+                  {user.clubs ? <span className="users-view-link"><Users size={14} aria-hidden="true" /><span>{user.clubs}</span></span> : null}
                 </div>
                 <div className="users-view-card-code">
                   <span><KeyRound size={13} aria-hidden="true" /> Reset code</span>

@@ -175,7 +175,6 @@ export interface BookingPayload {
   facilityTag: string | null;
   lockToken?: string | null;
 }
-
 export interface StripePaymentIntentPayload {
   bookingType: BookingType;
   sportId?: SportId | null;
@@ -185,7 +184,6 @@ export interface StripePaymentIntentPayload {
   currency?: string;
   receiptId: string;
 }
-
 export interface StripeTestPaymentIntentPayload {
   amount: number;
   currency?: string;
@@ -208,6 +206,7 @@ export interface ProfileResponse {
   fullName: string;
   email: string;
   mobileNumber: string;
+  clubs?: string;
 }
 
 export interface RegisterPayload {
@@ -215,6 +214,7 @@ export interface RegisterPayload {
   mobileNumber: string;
   email: string;
   password: string;
+  clubs?: string;
 }
 
 export interface SlotsResponse {
@@ -241,6 +241,7 @@ export interface AdminUserRow {
   email: string;
   mobileNumber: string;
   passwordResetCode: string | null;
+  clubs: string | null;
 }
 
 export interface AdminUsersResponse {
@@ -322,12 +323,11 @@ export interface BookingHistoryItem {
   facilityMapLocationUrl: string | null;
   facilityImageKey: SportFacilityImageKey | null;
   facilityTag: string | null;
+  clubs?: string;
 }
-
 export interface BookingHistoryResponse {
   bookings: BookingHistoryItem[];
 }
-
 export interface AdminBookingItem {
   facilityTitle: string | null;
   facilityAddress: string | null;
@@ -344,6 +344,7 @@ export interface AdminBookingItem {
   createdAt: string;
   updatedAt: string;
   mobileNumber: string | null;
+  clubs: string | null;
 }
 
 export interface AdminBookingsResponse {

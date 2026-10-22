@@ -1,6 +1,6 @@
 import { Router } from 'express';
 import jwt from 'jsonwebtoken';
-import { completePasswordReset, countUsersByMobileNumber, createUserPasswordAccount, extendPasswordResetExpiry, findUserByEmail, findUserByEmailOrMobile, listAllUsersForAdmin, savePasswordResetCode, updateUserProfile, verifyPasswordResetCode } from '../lib/database';
+import { completePasswordReset, countUsersByMobileNumber, createUserPasswordAccount, extendPasswordResetExpiry, findUserByEmail, findUserByEmailOrMobile, getConfigByType, listAllUsersForAdmin, savePasswordResetCode, updateUserProfile, verifyPasswordResetCode } from '../lib/database';
 import { decryptClientPasswordPayload, decryptPasswordAtRest, encryptPasswordAtRest } from '../lib/authCrypto';
 import { sendPasswordResetPasscode, sendWelcomeEmail } from '../lib/email';
 import { authMiddleware, requireAdminRole, type AuthenticatedRequest } from '../middleware/authMiddleware';
@@ -39,12 +39,25 @@ router.get('/profile', authMiddleware, async (req: AuthenticatedRequest, res) =>
     fullName: user.fullName,
     email: user.email,
     mobileNumber: user.mobileNumber,
+    clubs: user.clubs,
   });
 });
 
-// PUT /api/auth/profile — update user profile (full name and mobile number)
+// GET /api/auth/clubs — fetch available clubs/organizations
+router.get('/clubs', async (_req, res) => {
+  try {
+    const clubsConfig = await getConfigByType('CLUBS');
+    const clubs = Object.values(clubsConfig).sort();
+    res.json({ clubs });
+  } catch (error) {
+    console.error('[auth:clubs] Unable to fetch clubs.', error);
+    res.status(500).json({ error: 'Unable to load clubs.' });
+  }
+});
+
+// PUT /api/auth/profile — update user profile (full name, mobile number, and clubs)
 router.put('/profile', authMiddleware, async (req: AuthenticatedRequest, res) => {
-  const { fullName, mobileNumber } = req.body as { fullName?: string; mobileNumber?: string };
+  const { fullName, mobileNumber, clubs } = req.body as { fullName?: string; mobileNumber?: string; clubs?: string };
   const userEmail = req.user?.email;
 
   if (!userEmail) {
@@ -67,6 +80,7 @@ router.put('/profile', authMiddleware, async (req: AuthenticatedRequest, res) =>
       email: userEmail,
       fullName: fullName.trim(),
       mobileNumber: mobileNumber.trim(),
+      clubs: clubs?.trim() ?? '',
     });
 
     if (!updatedUser) {
@@ -78,6 +92,7 @@ router.put('/profile', authMiddleware, async (req: AuthenticatedRequest, res) =>
       fullName: updatedUser.fullName,
       email: updatedUser.email,
       mobileNumber: updatedUser.mobileNumber,
+      clubs: updatedUser.clubs,
     });
   } catch (error) {
     const message = error instanceof Error ? error.message : 'Unable to update profile.';
@@ -149,16 +164,19 @@ router.post('/register', async (req, res) => {
     name,
     mobileNumber,
     encryptedPassword,
+    clubs,
   } = req.body as {
     email?: string;
     name?: string;
     mobileNumber?: string;
     encryptedPassword?: string;
+    clubs?: string;
   };
 
   const normalizedEmail = normalizeEmail(email ?? '');
   const normalizedName = (name ?? '').trim();
   const normalizedMobile = (mobileNumber ?? '').trim();
+  const normalizedClubs = clubs?.trim() ?? '';
 
   if (!normalizedName || normalizedName.length < 2) {
     res.status(400).json({ error: 'Name must be at least 2 characters.' });
@@ -201,6 +219,7 @@ router.post('/register', async (req, res) => {
       fullName: normalizedName,
       mobileNumber: normalizedMobile,
       passwordEncrypted: storedEncryptedPassword,
+      clubs: normalizedClubs,
     });
   } catch (error) {
     const message = error instanceof Error ? error.message : 'Unable to create account.';
