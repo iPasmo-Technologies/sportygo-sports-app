@@ -93,6 +93,7 @@ export type BookingHistoryRow = {
   facilityMapLocationUrl: string | null;
   facilityImageKey: SportFacilityRow['imageKey'] | null;
   facilityTag: string | null;
+  clubs: string | null;
 };
 
 export type AdminBookingRow = {
@@ -2103,12 +2104,14 @@ export async function listBookingsByCustomer(customerEmail: string): Promise<Boo
        COALESCE(facility.image_key, booking.facility_image_key) AS "facilityImageKey",
        COALESCE(facility.tag_label, booking.facility_tag) AS "facilityTag",
        booking.status,
-       booking.payment_method AS "paymentMethod"
+       booking.payment_method AS "paymentMethod",
+       users.clubs
      FROM bookings AS booking
      LEFT JOIN sport_facilities AS facility
        ON facility.sport_id = booking.sport_id
       AND facility.facility_code = booking.facility_code
       AND facility.deleted_at IS NULL
+     LEFT JOIN users ON users.email = booking.customer_email AND users.deleted_at IS NULL
      WHERE booking.deleted_at IS NULL
        AND LOWER(BTRIM(booking.customer_email)) = $1
      ORDER BY booking.slot_date DESC, booking.slot_time DESC`,
@@ -2379,7 +2382,8 @@ export async function findUserByEmail(email: string): Promise<UserAuthRow | null
             password_reset_code AS "passwordResetCode",
             password_reset_expires_at::text AS "passwordResetExpiresAt",
             auth_provider AS "authProvider",
-            role
+            role,
+            clubs
      FROM users
      WHERE deleted_at IS NULL
        AND LOWER(email) = LOWER($1)
@@ -2435,10 +2439,11 @@ export async function findUserByEmailOrMobile(loginId: string): Promise<UserAuth
             full_name AS "fullName",
             mobile_number AS "mobileNumber",
             password_encrypted AS "passwordEncrypted",
-                 password_reset_code AS "passwordResetCode",
-                 password_reset_expires_at::text AS "passwordResetExpiresAt",
+            password_reset_code AS "passwordResetCode",
+            password_reset_expires_at::text AS "passwordResetExpiresAt",
             auth_provider AS "authProvider",
-            role
+            role,
+            clubs
      FROM users
      WHERE deleted_at IS NULL
        AND (
@@ -2519,7 +2524,8 @@ export async function updateUserPasswordByEmailOrMobile(input: {
                password_reset_code AS "passwordResetCode",
                password_reset_expires_at::text AS "passwordResetExpiresAt",
                auth_provider AS "authProvider",
-               role`,
+               role,
+               clubs`,
     [normalizedLoginId, input.passwordEncrypted]
   );
 
@@ -2691,7 +2697,8 @@ export async function savePasswordResetCode(input: {
                password_reset_code AS "passwordResetCode",
                password_reset_expires_at::text AS "passwordResetExpiresAt",
                auth_provider AS "authProvider",
-               role`,
+               role,
+               clubs`,
     [normalizedEmail, input.code, input.expiresAtIso]
   );
 
@@ -2728,7 +2735,8 @@ export async function extendPasswordResetExpiry(email: string, expiresAtIso: str
                password_reset_code AS "passwordResetCode",
                password_reset_expires_at::text AS "passwordResetExpiresAt",
                auth_provider AS "authProvider",
-               role`,
+               role,
+               clubs`,
     [normalizedEmail, expiresAtIso]
   );
 
