@@ -66,6 +66,33 @@ npm run dev
 
 6. Open the app at `http://localhost:5173`.
 
+## Promo and Membership Discounts
+
+The booking flow supports promo codes and membership-based discounts that are enforced server-side before Stripe or booking confirmation. The backend is the single source of truth for:
+
+- whether a code is active and in-date;
+- whether the booking amount, sport, facility, and booking type match the code's eligibility;
+- user-per-code usage limits and global usage limits;
+- the final discount applied to the booking total; and
+- a short-lived reservation that prevents a discount from being double-used while checkout is in progress.
+
+### Promo rules
+
+- Percentage discounts are capped by the code's `maxDiscountAmount` when present.
+- Fixed-amount discounts are also capped at the booking total, so the balance never goes negative.
+- A code cannot be used if the booking total is below `minBookingAmount`.
+- `applicableSports`, `applicableFacilities`, and `applicableBookingTypes` are enforced when configured.
+- `maxUsesTotal` and `maxUsesPerUser` are checked in the same reservation/booking transaction as the final booking write.
+- Expired reservations are rejected and cleaned up automatically when the user retries checkout.
+
+### Validation flow
+
+1. The client sends only the promo code and booking context.
+2. The backend validates the code against the authenticated user and the server-calculated total.
+3. The backend reserves the discount for 30 minutes while the payment is processed.
+4. Final booking confirmation verifies the reservation before it writes the booking and usage record.
+5. Stripe totals and final booking totals are reconciled to the server-approved discounted amount.
+
 ## Slot Creation and Availability
 
 ### How slots are generated

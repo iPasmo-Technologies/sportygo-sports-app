@@ -2,7 +2,7 @@ import { Router } from 'express';
 import { authMiddleware, type AuthenticatedRequest } from '../middleware/authMiddleware';
 import { getStripeClient, isStripeConfigured, toMinorCurrencyUnits } from '../lib/stripe';
 import { calculateBookingPricing } from '../lib/bookingPricing';
-import { getConfigBoolean, type SportRow } from '../lib/database';
+import { getConfigBoolean, reservePromoCode, releasePromoReservation, type SportRow } from '../lib/database';
 
 const router = Router();
 const DEFAULT_CURRENCY = (process.env.STRIPE_CURRENCY ?? 'sgd').trim().toLowerCase();
@@ -22,7 +22,7 @@ router.post('/stripe/payment-intent', authMiddleware, async (req: AuthenticatedR
     return;
   }
 
-  const { bookingType, sportId, facilityCode, durationMins, packageOption, currency, receiptId } = req.body as {
+  const { bookingType, sportId, facilityCode, durationMins, packageOption, currency, receiptId, promoCode } = req.body as {
     bookingType?: string;
     sportId?: SportRow['id'] | null;
     facilityCode?: string | null;
@@ -30,6 +30,7 @@ router.post('/stripe/payment-intent', authMiddleware, async (req: AuthenticatedR
     packageOption?: string | null;
     currency?: string;
     receiptId?: string;
+    promoCode?: string;
   };
 
   if (!bookingType) {
@@ -39,6 +40,11 @@ router.post('/stripe/payment-intent', authMiddleware, async (req: AuthenticatedR
 
   if (!Number.isFinite(durationMins) || (durationMins as number) <= 0) {
     res.status(400).json({ error: 'durationMins must be a positive number.' });
+    return;
+  }
+
+  if (!receiptId?.trim()) {
+    res.status(400).json({ error: 'receiptId is required.' });
     return;
   }
 
@@ -59,7 +65,25 @@ router.post('/stripe/payment-intent', authMiddleware, async (req: AuthenticatedR
     return;
   }
 
-  const amountInMinor = toMinorCurrencyUnits(pricing.grandTotal);
+  let discountAmount = 0;
+  if (promoCode?.trim()) {
+    const reservation = await reservePromoCode({
+      code: promoCode,
+      userEmail: customerEmail,
+      receiptId,
+      bookingAmount: pricing.grandTotal,
+      sportId: sportId ?? undefined,
+      facilityCode: facilityCode ?? undefined,
+      bookingType,
+    });
+    if (!reservation.valid || reservation.discountAmount === undefined) {
+      res.status(400).json({ error: reservation.error ?? 'Promo code is not valid for this booking.' });
+      return;
+    }
+    discountAmount = reservation.discountAmount;
+  }
+
+  const amountInMinor = toMinorCurrencyUnits(Math.max(0, pricing.grandTotal - discountAmount));
   if (amountInMinor <= 0) {
     res.status(400).json({ error: 'Amount must be at least 0.01.' });
     return;
@@ -82,10 +106,13 @@ router.post('/stripe/payment-intent', authMiddleware, async (req: AuthenticatedR
         facilityCode: facilityCode ?? '',
         durationMins: String(durationMins),
         packageOption: packageOption ?? '',
+        promoCode: promoCode?.trim().toUpperCase() ?? '',
+        discountAmount: String(discountAmount),
       },
     });
 
     if (!intent.client_secret) {
+      if (promoCode?.trim()) await releasePromoReservation(receiptId, customerEmail);
       res.status(500).json({ error: 'Unable to initialize Stripe payment.' });
       return;
     }
@@ -97,6 +124,7 @@ router.post('/stripe/payment-intent', authMiddleware, async (req: AuthenticatedR
       currency: intent.currency,
     });
   } catch (error) {
+    if (promoCode?.trim()) await releasePromoReservation(receiptId, customerEmail);
     console.error('[payments] Stripe payment initialization failed:', error);
     res.status(502).json({ error: 'Unable to start card payment. Please try again later.' });
   }

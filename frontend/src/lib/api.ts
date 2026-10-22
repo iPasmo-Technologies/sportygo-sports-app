@@ -569,40 +569,34 @@ export async function rescheduleMyBooking(
 
 // ─── Promo Codes ──────────────────────────────────────────────────
 
-export async function fetchPromoCodes(): Promise<PromoCode[]> {
-  return request<PromoCode[]>('/api/promo-codes', {
+export async function fetchPromoCodes(token: string): Promise<PromoCode[]> {
+  const response = await request<{ promoCodes: PromoCode[] }>('/api/promo-codes', {
     method: 'GET',
+    headers: { Authorization: `Bearer ${token}` },
   });
+  return response.promoCodes;
 }
 
 export async function validatePromoCode(input: {
   code: string;
-  userEmail: string;
-  bookingAmount: number;
   sportId?: string;
   facilityCode?: string;
   bookingType?: string;
-}): Promise<PromoCodeValidationResult> {
+  durationMins: number;
+  packageOption: string | null;
+  payMethod: string;
+}, token: string): Promise<PromoCodeValidationResult> {
   return request<PromoCodeValidationResult>('/api/promo-codes/validate', {
     method: 'POST',
+    headers: { Authorization: `Bearer ${token}` },
     body: JSON.stringify(input),
   });
 }
 
-export async function applyPromoCode(input: {
-  promoCodeId: string;
-  userEmail: string;
-  bookingId: string;
-  discountAmount: number;
-}): Promise<PromoCodeUsageRecord> {
-  return request<PromoCodeUsageRecord>('/api/promo-codes/apply', {
-    method: 'POST',
-    body: JSON.stringify(input),
-  });
-}
-
-export async function fetchUserPromoCodeUsage(userEmail: string): Promise<PromoCodeUsageRecord[]> {
-  return request<PromoCodeUsageRecord[]>(`/api/promo-codes/usage/${encodeURIComponent(userEmail)}`, {
+export async function fetchUserPromoCodeUsage(token: string): Promise<PromoCodeUsageRecord[]> {
+  const response = await request<{ usage: PromoCodeUsageRecord[] }>('/api/promo-codes/usage', {
     method: 'GET',
+    headers: { Authorization: `Bearer ${token}` },
   });
+  return response.usage;
 }

@@ -175,7 +175,6 @@ export interface BookingPayload {
   facilityTag: string | null;
   lockToken?: string | null;
   promoCode?: string;
-  discountAmount?: number;
 }
 
 export interface StripePaymentIntentPayload {
@@ -186,6 +185,7 @@ export interface StripePaymentIntentPayload {
   packageOption: string | null;
   currency?: string;
   receiptId: string;
+  promoCode?: string;
 }
 
 export interface StripeTestPaymentIntentPayload {

@@ -1,14 +1,14 @@
 import { Router } from 'express';
 import {
-  applyPromoCode,
   createPromoCode,
-  getPromoCodeByCode,
   listPromoCodes,
   validatePromoCode,
   getPromoCodeUsage,
   getUserPromoCodeUsage,
 } from '../lib/database';
 import { authMiddleware, requireAdminRole, type AuthenticatedRequest } from '../middleware/authMiddleware';
+import { calculateBookingPricing } from '../lib/bookingPricing';
+import type { SportRow } from '../lib/database';
 
 const router = Router();
 
@@ -20,24 +20,6 @@ router.get('/', authMiddleware, requireAdminRole, async (_req, res) => {
   } catch (error) {
     console.error('[promo-codes:list] Unable to list promo codes.', error);
     res.status(500).json({ error: 'Unable to load promo codes.' });
-  }
-});
-
-// GET /api/promo-codes/:code — fetch a specific promo code by code
-router.get('/:code', async (req, res) => {
-  try {
-    const code = req.params.code;
-    const promoCode = await getPromoCodeByCode(code);
-
-    if (!promoCode) {
-      res.status(404).json({ error: 'Promo code not found.' });
-      return;
-    }
-
-    res.json({ promoCode });
-  } catch (error) {
-    console.error('[promo-codes:get] Unable to fetch promo code.', error);
-    res.status(500).json({ error: 'Unable to load promo code.' });
   }
 });
 
@@ -152,22 +134,24 @@ router.post('/', authMiddleware, requireAdminRole, async (req: AuthenticatedRequ
   }
 });
 
-// POST /api/promo-codes/validate — validate a promo code for a booking
-router.post('/validate', async (req, res) => {
+// POST /api/promo-codes/validate — validate a promo code for the authenticated user's booking
+router.post('/validate', authMiddleware, async (req: AuthenticatedRequest, res) => {
   const {
     code,
-    userEmail,
-    bookingAmount,
     sportId,
     facilityCode,
     bookingType,
+    durationMins,
+    packageOption,
+    payMethod,
   } = req.body as {
     code?: string;
-    userEmail?: string;
-    bookingAmount?: number;
     sportId?: string;
     facilityCode?: string;
     bookingType?: string;
+    durationMins?: number;
+    packageOption?: string | null;
+    payMethod?: string;
   };
 
   if (!code || !code.trim()) {
@@ -175,21 +159,30 @@ router.post('/validate', async (req, res) => {
     return;
   }
 
-  if (!userEmail || !userEmail.trim()) {
-    res.status(400).json({ error: 'User email is required.' });
+  const userEmail = req.user?.email?.trim().toLowerCase();
+  if (!userEmail) {
+    res.status(401).json({ error: 'Authorization token is required.' });
     return;
   }
 
-  if (typeof bookingAmount !== 'number' || bookingAmount <= 0) {
-    res.status(400).json({ error: 'Valid booking amount is required.' });
+  if (!bookingType || !sportId || !facilityCode || !Number.isFinite(durationMins) || (durationMins as number) <= 0) {
+    res.status(400).json({ error: 'Complete booking details are required to validate a promo code.' });
     return;
   }
 
   try {
+    const pricing = await calculateBookingPricing({
+      bookingType,
+      sportId: sportId as SportRow['id'],
+      facilityCode,
+      durationMins: durationMins as number,
+      packageOption: packageOption ?? null,
+      payMethod: payMethod ?? 'STRIPE',
+    });
     const result = await validatePromoCode({
       code: code.trim().toUpperCase(),
-      userEmail: userEmail.trim().toLowerCase(),
-      bookingAmount,
+      userEmail,
+      bookingAmount: pricing.grandTotal,
       sportId,
       facilityCode,
       bookingType,
@@ -199,60 +192,6 @@ router.post('/validate', async (req, res) => {
   } catch (error) {
     console.error('[promo-codes:validate] Unable to validate promo code.', error);
     res.status(500).json({ error: 'Unable to validate promo code.' });
-  }
-});
-
-// POST /api/promo-codes/apply — apply a promo code to a booking
-router.post('/apply', async (req, res) => {
-  const {
-    promoCodeId,
-    userEmail,
-    bookingId,
-    discountAmount,
-  } = req.body as {
-    promoCodeId?: string;
-    userEmail?: string;
-    bookingId?: string;
-    discountAmount?: number;
-  };
-
-  if (!promoCodeId || !promoCodeId.trim()) {
-    res.status(400).json({ error: 'Promo code ID is required.' });
-    return;
-  }
-
-  if (!userEmail || !userEmail.trim()) {
-    res.status(400).json({ error: 'User email is required.' });
-    return;
-  }
-
-  if (!bookingId || !bookingId.trim()) {
-    res.status(400).json({ error: 'Booking ID is required.' });
-    return;
-  }
-
-  if (typeof discountAmount !== 'number' || discountAmount <= 0) {
-    res.status(400).json({ error: 'Valid discount amount is required.' });
-    return;
-  }
-
-  try {
-    const usage = await applyPromoCode({
-      promoCodeId: promoCodeId.trim(),
-      userEmail: userEmail.trim().toLowerCase(),
-      bookingId: bookingId.trim(),
-      discountAmount,
-    });
-
-    if (!usage) {
-      res.status(400).json({ error: 'Failed to apply promo code.' });
-      return;
-    }
-
-    res.status(201).json({ usage });
-  } catch (error) {
-    console.error('[promo-codes:apply] Unable to apply promo code.', error);
-    res.status(500).json({ error: 'Unable to apply promo code.' });
   }
 });
 
@@ -268,10 +207,14 @@ router.get('/:id/usage', authMiddleware, requireAdminRole, async (req, res) => {
   }
 });
 
-// GET /api/promo-codes/usage/:email — fetch user's promo code usage
-router.get('/usage/:email', async (req, res) => {
+// GET /api/promo-codes/usage — fetch the authenticated user's promo code usage
+router.get('/usage', authMiddleware, async (req: AuthenticatedRequest, res) => {
   try {
-    const email = req.params.email;
+    const email = req.user?.email;
+    if (!email) {
+      res.status(401).json({ error: 'Authorization token is required.' });
+      return;
+    }
     const usage = await getUserPromoCodeUsage(email);
     res.json({ usage });
   } catch (error) {

@@ -1,6 +1,6 @@
 import { Router } from 'express';
 import { authMiddleware, requireAdminRole, type AuthenticatedRequest } from '../middleware/authMiddleware';
-import { BookingNotManageableError, cancelBooking, FacilityUnavailableError, listAllBookingsForAdmin, listBookingsByCustomer, rescheduleBooking, saveBooking, SlotAlreadyBookedError, SlotConfigurationMissingError, type SportFacilityRow } from '../lib/database';
+import { BookingNotManageableError, cancelBooking, FacilityUnavailableError, getPromoReservation, listAllBookingsForAdmin, listBookingsByCustomer, reservePromoCode, rescheduleBooking, saveBooking, SlotAlreadyBookedError, SlotConfigurationMissingError, type SportFacilityRow } from '../lib/database';
 import { getStripeClient, isStripeConfigured, toMinorCurrencyUnits } from '../lib/stripe';
 import { calculateBookingPricing } from '../lib/bookingPricing';
 import { type SportRow } from '../lib/database';
@@ -233,6 +233,7 @@ router.post('/', authMiddleware, async (req: AuthenticatedRequest, res) => {
     packageOption, payMethod, grandTotal, receiptId, customerEmail: bodyCustomerEmail,
     stripePaymentIntentId, lockToken,
     facilityTitle, facilityAddress, facilityImageKey, facilityTag,
+    promoCode,
   } = req.body as {
     bookingType: string;
     sportId?: SportRow['id'] | null;
@@ -251,6 +252,7 @@ router.post('/', authMiddleware, async (req: AuthenticatedRequest, res) => {
     facilityAddress?: string | null;
     facilityImageKey?: string | null;
     facilityTag?: string | null;
+    promoCode?: string;
   };
 
   const customerEmail = req.user?.email
@@ -299,6 +301,34 @@ router.post('/', authMiddleware, async (req: AuthenticatedRequest, res) => {
     return;
   }
 
+  let discountAmount = 0;
+  if (promoCode?.trim()) {
+    if (payMethod === 'STRIPE') {
+      const reservedDiscount = await getPromoReservation(receiptId, resolvedCustomerEmail, promoCode);
+      if (reservedDiscount === null) {
+        res.status(400).json({ error: 'Promo code reservation is invalid or expired. Please retry checkout.' });
+        return;
+      }
+      discountAmount = reservedDiscount;
+    } else {
+      const reservation = await reservePromoCode({
+        code: promoCode,
+        userEmail: resolvedCustomerEmail,
+        receiptId,
+        bookingAmount: pricing.grandTotal,
+        sportId: sportId ?? undefined,
+        facilityCode: facilityCode ?? undefined,
+        bookingType,
+      });
+      if (!reservation.valid || reservation.discountAmount === undefined) {
+        res.status(400).json({ error: reservation.error ?? 'Promo code is not valid for this booking.' });
+        return;
+      }
+      discountAmount = reservation.discountAmount;
+    }
+  }
+  const finalGrandTotal = Math.max(0, Math.round((pricing.grandTotal - discountAmount) * 100) / 100);
+
   let responseStatus: 'success' | 'cash' = 'cash';
   let bookingStatus = 'cash_pending';
   let paymentMethod: 'ONLINE' | 'CASH' = 'CASH';
@@ -326,7 +356,15 @@ router.post('/', authMiddleware, async (req: AuthenticatedRequest, res) => {
         return;
       }
 
-      const expectedAmount = toMinorCurrencyUnits(pricing.grandTotal);
+      const expectedPromoCode = promoCode?.trim().toUpperCase() ?? '';
+      if (intent.metadata.receiptId !== receiptId
+        || (intent.metadata.promoCode ?? '') !== expectedPromoCode
+        || Number(intent.metadata.discountAmount ?? 0) !== discountAmount) {
+        res.status(400).json({ error: 'Stripe payment details do not match this booking.' });
+        return;
+      }
+
+      const expectedAmount = toMinorCurrencyUnits(finalGrandTotal);
       const paidAmount = intent.amount_received || intent.amount || 0;
       if (paidAmount !== expectedAmount) {
         res.status(400).json({
@@ -373,7 +411,7 @@ router.post('/', authMiddleware, async (req: AuthenticatedRequest, res) => {
       durationMins,
       packageOption,
       payMethod,
-      grandTotal: pricing.grandTotal,
+      grandTotal: finalGrandTotal,
       receiptId,
       customerEmail: resolvedCustomerEmail,
       bookingStatus,
@@ -382,6 +420,8 @@ router.post('/', authMiddleware, async (req: AuthenticatedRequest, res) => {
       facilityAddress: facilityAddress?.trim() || null,
       facilityImageKey: toFacilityImageKey(facilityImageKey),
       facilityTag: facilityTag?.trim() || null,
+      promoCode: promoCode?.trim().toUpperCase() ?? null,
+      discountAmount,
       lockToken: lockToken ?? null,
     });
   } catch (error) {
@@ -419,7 +459,7 @@ router.post('/', authMiddleware, async (req: AuthenticatedRequest, res) => {
     slotDate: selectedDate,
     slotTime: selectedTime,
     durationMins,
-    amount: pricing.grandTotal,
+    amount: finalGrandTotal,
   });
 
   res.json({
