@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from 'react';
-import { CalendarClock, CalendarDays, ChevronLeft, ChevronRight, Clock3, Mail, MapPin, Package, Phone, ReceiptText, Search, WalletCards } from 'lucide-react';
+import { CalendarClock, CalendarDays, ChevronLeft, ChevronRight, Clock3, Mail, MapPin, Package, Phone, ReceiptText, Search, Users, WalletCards } from 'lucide-react';
 import ScreenHeader from '@/components/ScreenHeader';
 import ErrorBanner from '@/components/ErrorBanner';
 import Spinner from '@/components/Spinner';
@@ -81,7 +81,7 @@ function matchesSearch(booking: AdminBookingItem, query: string): boolean {
   if (!query.trim()) return true;
   const haystack = [booking.facilityTitle, booking.facilityAddress, booking.receiptId, booking.customerEmail,
     booking.createdBy, booking.payMethod, booking.packageId, booking.slotDate, booking.status,
-    booking.durationMins, booking.grandTotal, booking.createdAt, booking.updatedAt, booking.mobileNumber].filter((value) => value !== null && value !== undefined).join(' ').toLowerCase();
+    booking.durationMins, booking.grandTotal, booking.createdAt, booking.updatedAt, booking.mobileNumber, booking.clubs].filter((value) => value !== null && value !== undefined).join(' ').toLowerCase();
   return haystack.includes(query.trim().toLowerCase());
 }
 
@@ -199,6 +199,7 @@ export default function AdminBookingsScreen() {
                   <span><ReceiptText size={13} />{booking.receiptId}</span>
                   <a href={`mailto:${booking.customerEmail}`}><Mail size={13} />{booking.customerEmail}</a>
                   {booking.mobileNumber ? <a href={`tel:${booking.mobileNumber}`}><Phone size={13} />{booking.mobileNumber}</a> : null}
+                  {booking.clubs ? <span><Users size={13} />{booking.clubs}</span> : null}
                   {showCreatedBy ? <span>Created by {booking.createdBy}</span> : null}
                   <span><CalendarClock size={13} />{auditDetails.label}: {auditDetails.value}</span>
                   <strong className={`admin-booking-schedule ${scheduleState}`}>

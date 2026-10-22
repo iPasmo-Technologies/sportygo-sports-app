@@ -241,6 +241,7 @@ export interface AdminUserRow {
   email: string;
   mobileNumber: string;
   passwordResetCode: string | null;
+  clubs: string | null;
 }
 
 export interface AdminUsersResponse {
@@ -343,6 +344,7 @@ export interface AdminBookingItem {
   createdAt: string;
   updatedAt: string;
   mobileNumber: string | null;
+  clubs: string | null;
 }
 
 export interface AdminBookingsResponse {

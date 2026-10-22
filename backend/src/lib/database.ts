@@ -112,6 +112,7 @@ export type AdminBookingRow = {
   createdAt: string;
   updatedAt: string;
   mobileNumber: string | null;
+  clubs: string | null;
 };
 
 type BookingInput = {
@@ -168,6 +169,7 @@ export type AdminUserRow = {
   email: string;
   mobileNumber: string;
   passwordResetCode: string | null;
+  clubs: string | null;
 };
 
 export type AdminSlotBlockResult = {
@@ -2139,7 +2141,8 @@ export async function listAllBookingsForAdmin(): Promise<AdminBookingRow[]> {
                  booking.status,
                  booking.created_at::text AS "createdAt",
                  booking.updated_at::text AS "updatedAt",
-                 users.mobile_number AS "mobileNumber"
+                 users.mobile_number AS "mobileNumber",
+                 users.clubs
      FROM bookings AS booking
      LEFT JOIN users ON users.email = booking.customer_email AND users.deleted_at IS NULL
      WHERE booking.deleted_at IS NULL
@@ -2401,6 +2404,7 @@ export async function listAllUsersForAdmin(): Promise<AdminUserRow[]> {
       email: user.email,
       mobileNumber: user.mobileNumber,
       passwordResetCode: user.passwordResetCode ?? null,
+      clubs: user.clubs ?? null,
     }));
   }
 
@@ -2408,7 +2412,8 @@ export async function listAllUsersForAdmin(): Promise<AdminUserRow[]> {
     `SELECT full_name AS "fullName",
             email,
             mobile_number AS "mobileNumber",
-            password_reset_code AS "passwordResetCode"
+            password_reset_code AS "passwordResetCode",
+            clubs
      FROM users
      WHERE deleted_at IS NULL
      ORDER BY full_name ASC, email ASC`

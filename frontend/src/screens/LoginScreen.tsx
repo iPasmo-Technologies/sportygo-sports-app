@@ -60,7 +60,7 @@ export default function LoginScreen() {
     fetchClubs()
       .then((data) => {
         if (!cancelled) {
-          const options = Object.entries(data).map(([key, label]) => ({ key, label }));
+          const options = data.map((label) => ({ key: label, label }));
           setClubOptions(options);
         }
       })

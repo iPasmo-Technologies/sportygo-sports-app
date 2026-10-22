@@ -97,7 +97,7 @@ export default function ProfileScreen() {
     fetchClubs()
       .then((data) => {
         if (!cancelled) {
-          const options = Object.entries(data).map(([key, label]) => ({ key, label }));
+          const options = data.map((label) => ({ key: label, label }));
           setClubOptions(options);
         }
       })
@@ -135,7 +135,7 @@ export default function ProfileScreen() {
     setClubLoading(true);
     fetchClubs()
       .then((data) => {
-        const options = Object.entries(data).map(([key, label]) => ({ key, label }));
+        const options = data.map((label) => ({ key: label, label }));
         setClubOptions(options);
       })
       .catch(() => {

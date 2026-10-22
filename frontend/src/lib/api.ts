@@ -277,10 +277,11 @@ export async function resetPasswordWithCode(email: string, code: string, passwor
 }
 
 // ─── Clubs ────────────────────────────────────────────────────
-export async function fetchClubs(): Promise<Record<string, string>> {
-  return request<Record<string, string>>('/api/auth/clubs', {
+export async function fetchClubs(): Promise<string[]> {
+  const response = await request<{ clubs: string[] }>('/api/auth/clubs', {
     method: 'GET',
   });
+  return response.clubs;
 }
 
 // ─── Slots ────────────────────────────────────────────────────
