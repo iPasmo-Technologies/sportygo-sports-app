@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { ArrowRight, CalendarDays, ChevronDown, Clock3, FlaskConical, Lock, MapPin, Zap } from 'lucide-react';
+import { ArrowRight, CalendarDays, ChevronDown, Clock3, FlaskConical, Lock, MapPin, Zap, X } from 'lucide-react';
 import { useApp, useSelectPayMethod } from '@/context/AppContext';
 import ScreenHeader from '@/components/ScreenHeader';
 import BookingStepBar from '@/components/BookingStepBar';
@@ -22,7 +22,7 @@ import {
   type StripeCardNumberElementChangeEvent,
   type StripeCardNumberElementOptions,
 } from '@stripe/stripe-js';
-import { createBooking, createMockBooking, createStripePaymentIntent, reserveSlotForBooking, releaseSlotReservation } from '@/lib/api';
+import { createBooking, createMockBooking, createStripePaymentIntent, reserveSlotForBooking, releaseSlotReservation, validatePromoCode } from '@/lib/api';
 import { PACKAGES, PLATFORM_FEE } from '@/lib/constants';
 import { calcPricing, parseRate, sgd } from '@/lib/pricing';
 import { formatDateShort, makeReceiptId, announce } from '@/lib/utils';
@@ -148,6 +148,9 @@ function CheckoutScreenContent() {
   const [paying, setPaying] = useState(false);
   const [totalExpanded, setTotalExpanded] = useState(false);
   const [cardError, setCardError] = useState<string | null>(null);
+  const [promoCode, setPromoCode] = useState('');
+  const [appliedPromoCode, setAppliedPromoCode] = useState<{ code: string; discountAmount: number } | null>(null);
+  const [promoError, setPromoError] = useState<string | null>(null);
   const [activeCardBrand, setActiveCardBrand] = useState<SupportedCardBrand>('unknown');
   const [focusedCardField, setFocusedCardField] = useState<CardFieldKey | null>(null);
   const [cardFieldFilled, setCardFieldFilled] = useState<CardFieldState>({
@@ -175,8 +178,10 @@ function CheckoutScreenContent() {
 
   const selectedMethod = state.payMethod;
   const isStripeMethod = state.payMethod === 'STRIPE';
+  const discountedTotal = Math.max(0, Math.round((pricing.grandTotal - (appliedPromoCode?.discountAmount ?? 0)) * 100) / 100);
   const coachingReady = isCoaching ? !!state.packageOption : true;
-  const canPay = !!state.payMethod && coachingReady && pricing.grandTotal > 0 && !paying && (!isStripeMethod || stripeConfigured);
+  const canPay = !!state.payMethod && coachingReady && pricing.grandTotal > 0 && !paying
+    && (!isStripeMethod || discountedTotal === 0 || stripeConfigured);
 
   const selectedSportLabel = state.selectedSport ? SPORT_LABELS[state.selectedSport] : 'Cricket';
   const selectedFacilityTitle = state.selectedFacility?.title ?? `${selectedSportLabel} Facility`;
@@ -194,6 +199,49 @@ function CheckoutScreenContent() {
     dispatch({ type: 'SET_PAY_METHOD', payload: null });
     dispatch({ type: 'SET_PAYMENT_CARD', payload: null });
   }, [dispatch]);
+
+  // Promo code functions
+  async function handleApplyPromoCode() {
+    if (!promoCode.trim()) return;
+
+    setPromoError(null);
+    try {
+      const result = await validatePromoCode({
+        code: promoCode.trim().toUpperCase(),
+        sportId: state.selectedSport ?? undefined,
+        facilityCode: state.selectedFacility?.code,
+        bookingType: state.bookingType ?? undefined,
+        durationMins: state.durationMins,
+        packageOption: state.packageOption,
+        payMethod: state.payMethod ?? 'STRIPE',
+      }, state.authToken ?? '');
+
+      if (!result.valid) {
+        setPromoError(result.error ?? 'Invalid promo code');
+        return;
+      }
+
+      if (!result.promoCode) {
+        setPromoError('Invalid promo code');
+        return;
+      }
+
+      setAppliedPromoCode({
+        code: result.promoCode.code,
+        discountAmount: result.discountAmount ?? 0,
+      });
+      setPromoCode('');
+      setPromoError(null);
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : 'Failed to validate promo code';
+      setPromoError(msg);
+    }
+  }
+
+  function handleRemovePromoCode() {
+    setAppliedPromoCode(null);
+    setPromoError(null);
+  }
 
   function setFieldFocus(field: CardFieldKey, focused: boolean) {
     setFocusedCardField((current) => {
@@ -261,8 +309,9 @@ function CheckoutScreenContent() {
     if (paying) return 'Processing payment...';
     if (isCoaching && !state.packageOption) return 'Select a package to continue';
     if (!state.payMethod) return 'Select a payment method';
+    if (discountedTotal === 0) return 'Confirm Free Booking';
     if (isStripeMethod && !stripeConfigured) return 'Card payment unavailable';
-    return `Pay ${sgd(pricing.grandTotal)} Securely`;
+    return `Pay ${sgd(discountedTotal)} Securely`;
   }
 
   async function handlePayment() {
@@ -275,6 +324,9 @@ function CheckoutScreenContent() {
     }
 
     const receiptId = makeReceiptId();
+    let finalGrandTotal = appliedPromoCode
+      ? Math.max(0, pricing.grandTotal - appliedPromoCode.discountAmount)
+      : pricing.grandTotal;
     setPaying(true);
     dispatch({ type: 'SET_PAYMENT_ERROR', payload: null });
     setCardError(null);
@@ -285,16 +337,16 @@ function CheckoutScreenContent() {
       let stripePaymentIntentId: string | undefined;
 
       if (state.payMethod === 'STRIPE') {
-        if (!stripeConfigured) {
+        if (finalGrandTotal > 0 && !stripeConfigured) {
           throw new Error('Stripe card payments are not configured. Set VITE_STRIPE_PUBLISHABLE_KEY in frontend environment.');
         }
 
-        if (!stripe || !elements) {
+        if (finalGrandTotal > 0 && (!stripe || !elements)) {
           throw new Error('Stripe is still loading. Please try again in a moment.');
         }
 
-        const cardNumberElement = elements.getElement(CardNumberElement);
-        if (!cardNumberElement) {
+        const cardNumberElement = finalGrandTotal > 0 ? elements?.getElement(CardNumberElement) : null;
+        if (finalGrandTotal > 0 && !cardNumberElement) {
           throw new Error('Enter your card details before paying.');
         }
 
@@ -312,38 +364,46 @@ function CheckoutScreenContent() {
         );
         lockToken = reservation.lockToken;
 
-        const intent = await createStripePaymentIntent(
-          {
-            bookingType: state.bookingType,
-            sportId: state.selectedSport,
-            facilityCode: state.selectedFacility?.code ?? null,
-            durationMins: state.durationMins,
-            packageOption: state.packageOption,
-            currency: 'sgd',
-            receiptId,
-          },
-          state.authToken
-        );
-
-        const confirmation = await stripe.confirmCardPayment(intent.clientSecret, {
-          payment_method: {
-            card: cardNumberElement,
-            billing_details: {
-              email: state.customerEmail,
+        if (finalGrandTotal > 0) {
+          const intent = await createStripePaymentIntent(
+            {
+              bookingType: state.bookingType,
+              sportId: state.selectedSport,
+              facilityCode: state.selectedFacility?.code ?? null,
+              durationMins: state.durationMins,
+              packageOption: state.packageOption,
+              currency: 'sgd',
+              receiptId,
+              promoCode: appliedPromoCode?.code,
             },
-          },
-        });
+            state.authToken
+          );
+          finalGrandTotal = intent.amount / 100;
 
-        if (confirmation.error) {
-          throw new Error(confirmation.error.message ?? 'Card payment failed. Please try another card.');
+          if (!stripe) {
+            throw new Error('Stripe is still loading. Please try again in a moment.');
+          }
+
+          const confirmation = await stripe.confirmCardPayment(intent.clientSecret, {
+            payment_method: {
+              card: cardNumberElement!,
+              billing_details: {
+                email: state.customerEmail,
+              },
+            },
+          });
+
+          if (confirmation.error) {
+            throw new Error(confirmation.error.message ?? 'Card payment failed. Please try another card.');
+          }
+
+          const paymentIntent = confirmation.paymentIntent;
+          if (!paymentIntent || paymentIntent.status !== 'succeeded') {
+            throw new Error('Card payment was not completed.');
+          }
+
+          stripePaymentIntentId = paymentIntent.id;
         }
-
-        const paymentIntent = confirmation.paymentIntent;
-        if (!paymentIntent || paymentIntent.status !== 'succeeded') {
-          throw new Error('Card payment was not completed.');
-        }
-
-        stripePaymentIntentId = paymentIntent.id;
       }
 
       const result = await createBooking(
@@ -356,7 +416,7 @@ function CheckoutScreenContent() {
           durationMins:  state.durationMins,
           packageOption: state.packageOption,
           payMethod:     state.payMethod,
-          grandTotal:    pricing.grandTotal,
+          grandTotal:    finalGrandTotal,
           receiptId,
           stripePaymentIntentId,
           lockToken,
@@ -365,12 +425,13 @@ function CheckoutScreenContent() {
           facilityAddress: state.selectedFacility?.address ?? null,
           facilityImageKey: state.selectedFacility?.imageKey ?? null,
           facilityTag: state.selectedFacility?.tag ?? null,
+          promoCode: appliedPromoCode ? appliedPromoCode.code : undefined,
         },
         state.authToken
       );
 
       // Persist derived pricing to state so BookingConfirmationScreen receipt shows correct amount
-      dispatch({ type: 'SET_PRICING', payload: pricing });
+      dispatch({ type: 'SET_PRICING', payload: { ...pricing, grandTotal: finalGrandTotal } });
       dispatch({ type: 'SET_RECEIPT', payload: receiptId });
       dispatch({ type: 'SET_PAYMENT_STATUS', payload: result.status });
       dispatch({
@@ -517,7 +578,7 @@ function CheckoutScreenContent() {
                 {timeRange}
               </p>
               <div className="checkout-summary-price-v2">
-                <strong>{sgd(pricing.grandTotal).replace('SGD', 'S$')} <span>(Incl. all fees)</span></strong>
+                <strong>{sgd(appliedPromoCode ? Math.max(0, pricing.grandTotal - appliedPromoCode.discountAmount) : pricing.grandTotal).replace('SGD', 'S$')} <span>(Incl. all fees)</span></strong>
               </div>
             </div>
           </div>
@@ -648,7 +709,7 @@ function CheckoutScreenContent() {
               <small>Total Amount</small>
             </div>
             <div className="checkout-total-right-v2">
-              <strong>{sgd(pricing.grandTotal).replace('SGD', 'S$')}</strong>
+              <strong>{sgd(discountedTotal).replace('SGD', 'S$')}</strong>
               <ChevronDown
                 size={20}
                 strokeWidth={2.1}
@@ -674,9 +735,49 @@ function CheckoutScreenContent() {
                   <span>{sgd(pricing.tax).replace('SGD', 'S$')}</span>
                 </div>
               )}
+              <div className="checkout-total-breakdown-row">
+                <span>Promo Code</span>
+                <div className="checkout-promo-input-wrap">
+                  <input
+                    type="text"
+                    className="checkout-promo-input"
+                    placeholder="Enter promo code"
+                    value={promoCode}
+                    onChange={(e) => setPromoCode(e.target.value.toUpperCase())}
+                    disabled={paying}
+                  />
+                  <button
+                    type="button"
+                    className="checkout-promo-apply-btn"
+                    onClick={handleApplyPromoCode}
+                    disabled={paying || !promoCode.trim()}
+                  >
+                    Apply
+                  </button>
+                </div>
+              </div>
+              {appliedPromoCode && (
+                <div className="checkout-total-breakdown-row promo-applied">
+                  <span>Discount ({appliedPromoCode.code})</span>
+                  <span className="discount-amount">-{sgd(appliedPromoCode.discountAmount).replace('SGD', 'S$')}</span>
+                  <button
+                    type="button"
+                    className="checkout-promo-remove-btn"
+                    onClick={handleRemovePromoCode}
+                    aria-label="Remove promo code"
+                  >
+                    <X size={16} strokeWidth={2.5} />
+                  </button>
+                </div>
+              )}
+              {promoError && (
+                <div className="checkout-total-breakdown-row promo-error">
+                  <span>{promoError}</span>
+                </div>
+              )}
               <div className="checkout-total-breakdown-row total">
                 <span>Total Payable</span>
-                <span>{sgd(pricing.grandTotal).replace('SGD', 'S$')}</span>
+                <span>{sgd(discountedTotal).replace('SGD', 'S$')}</span>
               </div>
             </div>
           )}

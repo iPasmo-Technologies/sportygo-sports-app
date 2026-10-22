@@ -174,6 +174,7 @@ export interface BookingPayload {
   facilityImageKey: SportFacilityImageKey | null;
   facilityTag: string | null;
   lockToken?: string | null;
+  promoCode?: string;
 }
 
 export interface StripePaymentIntentPayload {
@@ -184,6 +185,7 @@ export interface StripePaymentIntentPayload {
   packageOption: string | null;
   currency?: string;
   receiptId: string;
+  promoCode?: string;
 }
 
 export interface StripeTestPaymentIntentPayload {
@@ -322,6 +324,8 @@ export interface BookingHistoryItem {
   facilityMapLocationUrl: string | null;
   facilityImageKey: SportFacilityImageKey | null;
   facilityTag: string | null;
+  promoCode?: string;
+  discountAmount?: number;
 }
 
 export interface BookingHistoryResponse {
@@ -348,6 +352,58 @@ export interface AdminBookingItem {
 
 export interface AdminBookingsResponse {
   bookings: AdminBookingItem[];
+}
+
+export interface PromoCode {
+  id: string;
+  code: string;
+  name: string;
+  description: string | null;
+  discountType: 'percentage' | 'fixed_amount';
+  discountValue: number;
+  maxDiscountAmount: number | null;
+  minBookingAmount: number;
+  maxUsesTotal: number | null;
+  maxUsesPerUser: number;
+  usedCount: number;
+  applicableSports: string[];
+  applicableFacilities: string[];
+  applicableBookingTypes: string[];
+  validFrom: string;
+  validUntil: string;
+  isActive: boolean;
+  createdAt: string;
+  updatedAt: string;
+  deletedAt: string | null;
+  createdBy: string;
+  updatedBy: string;
+}
+
+export interface PromoCodeUsage {
+  id: string;
+  promoCodeId: string;
+  userEmail: string;
+  bookingId: string | null;
+  discountAmount: number;
+  usedAt: string;
+  createdAt: string;
+}
+
+export interface PromoCodeValidationResult {
+  valid: boolean;
+  promoCode?: PromoCode;
+  error?: string;
+  discountAmount?: number;
+}
+
+export interface PromoCodeUsageRecord {
+  id: string;
+  promoCodeId: string;
+  userEmail: string;
+  bookingId: string | null;
+  discountAmount: number;
+  usedAt: string;
+  createdAt: string;
 }
 
 export interface BookingCancellationResponse {

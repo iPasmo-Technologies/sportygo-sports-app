@@ -23,6 +23,9 @@ import type {
   StripePaymentIntentResponse,
   StripeTestPaymentIntentPayload,
   SportId,
+  PromoCode,
+  PromoCodeValidationResult,
+  PromoCodeUsageRecord,
 } from '@/types';
 import { markLocalBooked, mergeWithLocalBooked, unmarkLocalBooked } from './localBookedSlots';
 import { encryptPasswordForTransport } from './authCrypto';
@@ -562,4 +565,38 @@ export async function rescheduleMyBooking(
   unmarkLocalBooked(booking.sportId, booking.facilityCode, booking.slotDate, booking.slotTime.slice(0, 5));
   markLocalBooked(booking.sportId, booking.facilityCode, selectedDate, selectedTime);
   return response;
+}
+
+// ─── Promo Codes ──────────────────────────────────────────────────
+
+export async function fetchPromoCodes(token: string): Promise<PromoCode[]> {
+  const response = await request<{ promoCodes: PromoCode[] }>('/api/promo-codes', {
+    method: 'GET',
+    headers: { Authorization: `Bearer ${token}` },
+  });
+  return response.promoCodes;
+}
+
+export async function validatePromoCode(input: {
+  code: string;
+  sportId?: string;
+  facilityCode?: string;
+  bookingType?: string;
+  durationMins: number;
+  packageOption: string | null;
+  payMethod: string;
+}, token: string): Promise<PromoCodeValidationResult> {
+  return request<PromoCodeValidationResult>('/api/promo-codes/validate', {
+    method: 'POST',
+    headers: { Authorization: `Bearer ${token}` },
+    body: JSON.stringify(input),
+  });
+}
+
+export async function fetchUserPromoCodeUsage(token: string): Promise<PromoCodeUsageRecord[]> {
+  const response = await request<{ usage: PromoCodeUsageRecord[] }>('/api/promo-codes/usage', {
+    method: 'GET',
+    headers: { Authorization: `Bearer ${token}` },
+  });
+  return response.usage;
 }
