@@ -247,41 +247,6 @@ npx wrangler containers list
 
 The first Container deployment can take several minutes while Cloudflare provisions the image.
 
-### Secret updates and stale Container instances
-
-A dashboard or `wrangler secret put DATABASE_URL` update deploys a new Worker version, but a secret-only change may not produce an effective Container configuration change. Existing Container processes can therefore continue using their old startup environment. In this project, the backend creates its PostgreSQL pool once at startup, and active traffic can continually reset the Container's 10-minute idle shutdown timer.
-
-Verify the Worker secret and deployment without printing secret values:
-
-```powershell
-Set-Location cloudflare/backend-worker
-npx wrangler secret list
-npx wrangler deployments list
-npx wrangler containers list
-```
-
-If the Worker deployment is newer than the Container application's **Last modified** time, replace the old instances instead of waiting for a busy instance to sleep:
-
-1. Change the `LABEL rebuild` value in `Dockerfile.backend` to a unique value such as `YYYY-MM-DD-database-url-rotation`.
-2. Commit and push the change to `main`, or perform a manual immediate rollout from the repository root:
-
-  ```powershell
-  npx wrangler deploy --containers-rollout=immediate --config cloudflare/backend-worker/wrangler.jsonc
-  ```
-
-3. Find the Container application ID and inspect replacement instances:
-
-  ```powershell
-  npx wrangler containers list --config cloudflare/backend-worker/wrangler.jsonc
-  npx wrangler containers instances <CONTAINER_APPLICATION_ID> --config cloudflare/backend-worker/wrangler.jsonc
-  ```
-
-4. Wait for a new **Last modified** time and healthy replacement instances, then test a database-backed API operation against known production data.
-
-Cloudflare sends `SIGTERM` to old processes during the rollout and starts replacements with the current secret values. Do not use `wrangler containers delete` to refresh instances because that deletes the Container application. In a quiet non-production environment, stopping traffic and waiting more than 10 minutes also allows the default idle lifecycle to stop the process, but this is not deterministic for production.
-
-The new database must already contain the required schema and application-user permissions. Editing `backend/.env` changes local execution only; it does not update Cloudflare runtime secrets.
-
 ### Connect backend deployment to GitHub
 
 After the command-line deployment succeeds:
@@ -290,37 +255,19 @@ After the command-line deployment succeeds:
 2. Select the backend Worker.
 3. Open **Settings -> Builds -> Connect**.
 4. Select the same GitHub repository.
-5. Use these production build settings:
+5. Set the Workers Builds root directory to:
 
 ```text
-Build command: None (leave blank)
-Deploy command: npx wrangler deploy
-Root directory: cloudflare/backend-worker
-Production branch: main
+cloudflare/backend-worker
 ```
 
-6. Select **Create new token** and keep the automatically generated Workers Builds API token. A descriptive name such as `SportyGo Backend Workers Builds` is sufficient.
-7. Leave build-time variable name and value fields blank. Configure backend credentials separately under the Worker's runtime **Settings -> Variables and Secrets**.
-8. Disable **Builds for non-production branches**. The default version command can remain as shown:
+6. Set the production deploy command to:
 
 ```text
-npx wrangler versions upload
+npx wrangler deploy
 ```
 
-It will not run while non-production builds are disabled. Container previews should remain disabled because `wrangler versions upload` does not publish an updated Container image and Durable Object/Container Workers do not receive a normal preview URL.
-
-9. Keep the default build watch paths for the initial deployment:
-
-```text
-Include paths: *
-Exclude paths: node_modules/**, .git/
-```
-
-This safely triggers the backend build for every repository change. To avoid unrelated builds later, narrow the includes to `cloudflare/backend-worker/*`, `backend/*`, and `Dockerfile.backend`.
-
-10. Push a commit to `main` and monitor the first production build.
-
-Container production builds must use `wrangler deploy`; it bundles the Worker, builds and publishes the image, and rolls out the Container instances. A separate build command is not required.
+Container production builds must use `wrangler deploy`; a versions-only upload does not publish the updated Container image.
 
 ### Backend dashboard and GitHub screenshots
 

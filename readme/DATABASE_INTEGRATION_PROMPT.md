@@ -1,5 +1,7 @@
 # Database Integration & Architecture Prompt
 
+> Historical implementation prompt. The project now uses Neon PostgreSQL. For current schema and setup information, see [2_DATABASE_DESIGN.md](./2_DATABASE_DESIGN.md) and [3_NEON_POSTGRESQL_CONFIGURATION_README.md](./3_NEON_POSTGRESQL_CONFIGURATION_README.md). Do not use this prompt as the current deployment guide.
+
 ## Role
 
 You are an expert **Database Administrator (DBA)**, **Senior Principal Software Engineer**, **Solution Architect**, **Backend Engineer**, **DevOps Engineer**, and **Security Expert**.
