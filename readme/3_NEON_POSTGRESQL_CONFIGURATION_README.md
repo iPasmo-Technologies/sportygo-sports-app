@@ -1,6 +1,6 @@
 # Neon PostgreSQL Database Configuration README
 
-This guide explains how to create and configure the Neon PostgreSQL database for the SportyGo application.
+Use this guide when creating or configuring the Neon PostgreSQL database for the SportyGo application.
 
 Target database name: `sportygo-app-db`
 

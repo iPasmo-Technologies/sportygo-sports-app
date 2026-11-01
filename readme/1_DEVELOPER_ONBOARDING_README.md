@@ -1,6 +1,6 @@
 # SportyGo Booking App - Beginner Developer Guide
 
-Welcome to the SportyGo project. This guide explains how to prepare your computer, download the project, run it, understand the code, and make your first change.
+Start with this guide to prepare your computer, download the project, run it, understand the code, and make your first change.
 
 This guide assumes Windows and VS Code, but the project also works on macOS and Linux with small command changes.
 

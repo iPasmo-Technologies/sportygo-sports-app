@@ -9,6 +9,10 @@ Production-ready booking application with React frontend, Express backend, and N
 - Database: Neon PostgreSQL (using `pg` pool)
 - Infra: Docker, Nginx, Netlify-compatible frontend build
 
+## Documentation
+
+See [`readme/README.md`](readme/README.md) for the ordered developer, database, and deployment guides, plus supporting project references.
+
 ## Quick Start
 
 1. Install dependencies.

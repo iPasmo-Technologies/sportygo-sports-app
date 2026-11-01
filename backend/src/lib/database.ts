@@ -716,6 +716,13 @@ async function ensureSchema(client: PoolClient): Promise<void> {
     ALTER COLUMN password_encrypted SET NOT NULL
   `);
 
+  // Add index on mobile_number for faster login lookups
+  await client.query(`
+    CREATE INDEX IF NOT EXISTS idx_users_mobile_number
+    ON users (mobile_number)
+    WHERE deleted_at IS NULL
+  `);
+
   await client.query(`
     CREATE TABLE IF NOT EXISTS packages (
       id TEXT PRIMARY KEY,
@@ -1625,45 +1632,122 @@ export async function listSlotsForDate(
 
   return withDatabaseClient(async (client) => {
     const currentDateTime = currentSingaporeDateTimeParts();
-    await ensureSlotsForDate(client, dateStr, sportId, facilityCode);
-    const result = await client.query<{ slot_time: string; is_booked: boolean }>(
-      `SELECT s.slot_time::text AS slot_time,
-              (
-                s.is_booked OR EXISTS (
-                  SELECT 1
-                  FROM bookings b
-                  WHERE b.slot_date = s.slot_date
-                    AND b.sport_id = s.sport_id
-                    AND b.facility_code = s.facility_code
-                    AND b.deleted_at IS NULL
-                    AND b.status IN ('confirmed', 'cash_pending')
-                    AND s.slot_time >= b.slot_time
-                    AND s.slot_time < (b.slot_time + make_interval(mins => b.duration_mins))
-                ) OR EXISTS (
-                  SELECT 1
-                  FROM slot_reservations sr
-                  WHERE sr.slot_date = s.slot_date
-                    AND sr.slot_time = s.slot_time
-                    AND sr.sport_id = s.sport_id
-                    AND sr.facility_code = s.facility_code
-                    AND sr.status = 'pending'
-                    AND sr.expires_at > NOW()
-                )
-              ) AS is_booked
-       FROM slots s
-       WHERE s.slot_date = $1
-         AND s.sport_id = $2
-         AND s.facility_code = $3
-         AND s.deleted_at IS NULL
-       ORDER BY s.slot_time ASC`,
-      [dateStr, sportId, facilityCode]
+    
+    // Get slot configuration for this date (exception or weekday config)
+    const weekdayName = weekdayNameForDate(dateStr);
+    const configResult = await client.query<SlotWeekdayConfiguration>(
+      `SELECT slot_start_time::text AS "slotStartTime",
+              slot_end_time::text AS "slotEndTime"
+       FROM (
+         SELECT slot_start_time, slot_end_time, 0 AS priority
+         FROM slot_availability_exceptions
+         WHERE sport_id = $1
+           AND facility_code = $2
+           AND exception_date = $3::date
+           AND deleted_at IS NULL
+         UNION ALL
+         SELECT slot_start_time, slot_end_time, 1 AS priority
+         FROM slot_weekday_configurations
+         WHERE sport_id = $1
+           AND facility_code = $2
+           AND weekday_name = $4
+           AND deleted_at IS NULL
+       ) AS configured_window
+       ORDER BY priority
+       LIMIT 1`,
+      [sportId, facilityCode, dateStr, weekdayName]
     );
 
-    return result.rows.map((row) => ({
-      time: row.slot_time.slice(0, 5),
-      key: `${sportId}_${facilityCode}_${dateStr}_${row.slot_time.slice(0, 5)}`,
-      booked: row.is_booked,
-      past: isPastOrCurrentSlot(dateStr, row.slot_time.slice(0, 5), currentDateTime),
+    if (configResult.rowCount === 0) {
+      throw new SlotConfigurationMissingError(weekdayName);
+    }
+
+    const config = configResult.rows[0];
+    const generatedSlots = generateDailySlots(dateStr, config.slotStartTime.slice(0, 5), config.slotEndTime.slice(0, 5));
+    
+    if (generatedSlots.length === 0) {
+      return [];
+    }
+
+    // Get all booked slots from bookings, reservations, and block rules in a single query
+    const bookedSlotsResult = await client.query<{ slot_time: string }>(
+      `SELECT slot_time::text AS slot_time
+       FROM (
+         -- Slots from confirmed bookings
+         SELECT b.slot_time::text AS slot_time
+         FROM bookings b
+         WHERE b.slot_date = $1::date
+           AND b.sport_id = $2
+           AND b.facility_code = $3
+           AND b.deleted_at IS NULL
+           AND b.status IN ('confirmed', 'cash_pending')
+         UNION
+         -- Slots from pending reservations
+         SELECT sr.slot_time::text AS slot_time
+         FROM slot_reservations sr
+         WHERE sr.slot_date = $1::date
+           AND sr.sport_id = $2
+           AND sr.facility_code = $3
+           AND sr.status = 'pending'
+           AND sr.expires_at > NOW()
+         UNION
+         -- Slots from recurring block rules
+         SELECT s.slot_time::text AS slot_time
+         FROM generate_series(
+           (SELECT slot_start_time FROM slot_weekday_configurations 
+            WHERE sport_id = $2 AND facility_code = $3 AND weekday_name = $4 AND deleted_at IS NULL
+            LIMIT 1)::time,
+           (SELECT slot_end_time FROM slot_weekday_configurations 
+            WHERE sport_id = $2 AND facility_code = $3 AND weekday_name = $4 AND deleted_at IS NULL
+            LIMIT 1)::time,
+           '30 minutes'::interval
+         ) AS s(slot_time)
+         WHERE EXISTS (
+           SELECT 1 FROM slot_block_rules block
+           WHERE block.sport_id = $2
+             AND block.facility_code = $3
+             AND block.rule_type = 'recurring'
+             AND $1::date BETWEEN block.valid_from AND block.valid_to
+             AND block.weekday_name = $4
+             AND block.deleted_at IS NULL
+             AND s.slot_time >= block.slot_start_time
+             AND s.slot_time < block.slot_end_time
+         )
+         UNION
+         -- Slots from one-time block rules
+         SELECT s.slot_time::text AS slot_time
+         FROM generate_series(
+           (SELECT slot_start_time FROM slot_weekday_configurations 
+            WHERE sport_id = $2 AND facility_code = $3 AND weekday_name = $4 AND deleted_at IS NULL
+            LIMIT 1)::time,
+           (SELECT slot_end_time FROM slot_weekday_configurations 
+            WHERE sport_id = $2 AND facility_code = $3 AND weekday_name = $4 AND deleted_at IS NULL
+            LIMIT 1)::time,
+           '30 minutes'::interval
+         ) AS s(slot_time)
+         WHERE EXISTS (
+           SELECT 1 FROM slot_block_rules block
+           WHERE block.deleted_at IS NULL
+             AND block.rule_type = 'one-time'
+             AND block.selected_dates ? ($1::date)::text
+             AND (
+               (block.sport_id = $2 AND block.facility_code = $3)
+               OR (block.sport_id IS NULL AND block.facility_code IS NULL)
+             )
+             AND s.slot_time >= block.slot_start_time
+             AND s.slot_time < block.slot_end_time
+         )
+       ) AS all_booked_slots`,
+      [dateStr, sportId, facilityCode, weekdayName]
+    );
+
+    const bookedTimes = new Set(bookedSlotsResult.rows.map((row) => row.slot_time.slice(0, 5)));
+
+    return generatedSlots.map((slot) => ({
+      time: slot.time,
+      key: `${sportId}_${facilityCode}_${dateStr}_${slot.time}`,
+      booked: bookedTimes.has(slot.time),
+      past: isPastOrCurrentSlot(dateStr, slot.time, currentDateTime),
     }));
   });
 }
@@ -2343,8 +2427,10 @@ export async function upsertUserByEmail(email: string, provider: 'password' | 'g
 }
 
 export async function findUserByEmail(email: string): Promise<UserAuthRow | null> {
+  const normalizedEmail = email.trim().toLowerCase();
+
   if (!pool) {
-    return fallbackUsers.get(email.toLowerCase()) ?? null;
+    return fallbackUsers.get(normalizedEmail) ?? null;
   }
 
   const rows = await query<UserAuthRow>(
@@ -2359,9 +2445,9 @@ export async function findUserByEmail(email: string): Promise<UserAuthRow | null
             role
      FROM users
      WHERE deleted_at IS NULL
-       AND LOWER(email) = LOWER($1)
+       AND email = $1
      LIMIT 1`,
-    [email]
+    [normalizedEmail]
   );
 
   return rows[0] ?? null;
@@ -2406,27 +2492,47 @@ export async function findUserByEmailOrMobile(loginId: string): Promise<UserAuth
     return null;
   }
 
-  const rows = await query<UserAuthRow>(
+  // First try to find by email (uses email unique index)
+  const emailRows = await query<UserAuthRow>(
     `SELECT id,
             email,
             full_name AS "fullName",
             mobile_number AS "mobileNumber",
             password_encrypted AS "passwordEncrypted",
-                 password_reset_code AS "passwordResetCode",
-                 password_reset_expires_at::text AS "passwordResetExpiresAt",
+            password_reset_code AS "passwordResetCode",
+            password_reset_expires_at::text AS "passwordResetExpiresAt",
             auth_provider AS "authProvider",
             role
      FROM users
      WHERE deleted_at IS NULL
-       AND (
-         LOWER(email) = LOWER($1)
-         OR LOWER(mobile_number) = LOWER($1)
-       )
+       AND email = $1
      LIMIT 1`,
     [normalizedLoginId]
   );
 
-  return rows[0] ?? null;
+  if (emailRows.length > 0) {
+    return emailRows[0];
+  }
+
+  // If not found by email, try mobile_number (uses mobile_number index)
+  const mobileRows = await query<UserAuthRow>(
+    `SELECT id,
+            email,
+            full_name AS "fullName",
+            mobile_number AS "mobileNumber",
+            password_encrypted AS "passwordEncrypted",
+            password_reset_code AS "passwordResetCode",
+            password_reset_expires_at::text AS "passwordResetExpiresAt",
+            auth_provider AS "authProvider",
+            role
+     FROM users
+     WHERE deleted_at IS NULL
+       AND mobile_number = $1
+     LIMIT 1`,
+    [normalizedLoginId]
+  );
+
+  return mobileRows[0] ?? null;
 }
 
 export async function countUsersByMobileNumber(mobileNumber: string): Promise<number> {
@@ -2446,7 +2552,7 @@ export async function countUsersByMobileNumber(mobileNumber: string): Promise<nu
     `SELECT COUNT(*) as count
      FROM users
      WHERE deleted_at IS NULL
-       AND LOWER(mobile_number) = LOWER($1)`,
+       AND mobile_number = $1`,
     [normalizedMobile]
   );
 
@@ -2476,7 +2582,8 @@ export async function updateUserPasswordByEmailOrMobile(input: {
     return updated;
   }
 
-  const rows = await query<UserAuthRow>(
+  // First try to update by email (uses email unique index)
+  let rows = await query<UserAuthRow>(
     `UPDATE users
      SET password_encrypted = $2,
          password_reset_code = NULL,
@@ -2484,10 +2591,7 @@ export async function updateUserPasswordByEmailOrMobile(input: {
          updated_at = NOW(),
          updated_by = COALESCE(NULLIF(email, ''), $1)
      WHERE deleted_at IS NULL
-       AND (
-         LOWER(email) = LOWER($1)
-         OR LOWER(mobile_number) = LOWER($1)
-       )
+       AND email = $1
      RETURNING id,
                email,
                full_name AS "fullName",
@@ -2499,6 +2603,30 @@ export async function updateUserPasswordByEmailOrMobile(input: {
                role`,
     [normalizedLoginId, input.passwordEncrypted]
   );
+
+  // If not updated by email, try mobile_number (uses mobile_number index)
+  if (rows.length === 0) {
+    rows = await query<UserAuthRow>(
+      `UPDATE users
+       SET password_encrypted = $2,
+           password_reset_code = NULL,
+           password_reset_expires_at = NULL,
+           updated_at = NOW(),
+           updated_by = COALESCE(NULLIF(email, ''), $1)
+       WHERE deleted_at IS NULL
+         AND mobile_number = $1
+       RETURNING id,
+                 email,
+                 full_name AS "fullName",
+                 mobile_number AS "mobileNumber",
+                 password_encrypted AS "passwordEncrypted",
+                 password_reset_code AS "passwordResetCode",
+                 password_reset_expires_at::text AS "passwordResetExpiresAt",
+                 auth_provider AS "authProvider",
+                 role`,
+      [normalizedLoginId, input.passwordEncrypted]
+    );
+  }
 
   return rows[0] ?? null;
 }
@@ -2544,7 +2672,7 @@ export async function updateUserProfile(input: {
          updated_at = NOW(),
          updated_by = email
      WHERE deleted_at IS NULL
-       AND LOWER(email) = LOWER($1)
+       AND email = $1
      RETURNING id,
                email,
                full_name AS "fullName",
@@ -2651,7 +2779,7 @@ export async function savePasswordResetCode(input: {
          updated_at = NOW(),
          updated_by = email
      WHERE deleted_at IS NULL
-       AND LOWER(email) = LOWER($1)
+       AND email = $1
      RETURNING id,
                email,
                full_name AS "fullName",
@@ -2687,7 +2815,7 @@ export async function extendPasswordResetExpiry(email: string, expiresAtIso: str
          updated_at = NOW(),
          updated_by = email
      WHERE deleted_at IS NULL
-       AND LOWER(email) = LOWER($1)
+       AND email = $1
        AND password_reset_code IS NOT NULL
      RETURNING id,
                email,
@@ -2725,7 +2853,7 @@ export async function verifyPasswordResetCode(input: {
        SELECT 1
        FROM users
        WHERE deleted_at IS NULL
-         AND LOWER(email) = LOWER($1)
+         AND email = $1
          AND password_reset_code = $2
          AND password_reset_expires_at IS NOT NULL
          AND password_reset_expires_at > NOW()

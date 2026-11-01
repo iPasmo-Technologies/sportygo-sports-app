@@ -1,6 +1,6 @@
 # SportyGo Cloudflare Deployment Guide
 
-This guide is for the repository:
+Read this guide when deploying the application with the recommended Cloudflare architecture. It covers the repository:
 
 - GitHub: https://github.com/iPasmo-Technologies/sportygo-sports-app
 - Frontend: React 18 + TypeScript + Vite
