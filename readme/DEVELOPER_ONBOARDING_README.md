@@ -329,6 +329,7 @@ SMTP_FROM=SportyGo <verified-sender@example.com>
 
 Important:
 
+- `JWT_SECRET` signs login tokens. Locally any value works; if it is missing, the backend warns and uses an insecure development secret. In production (including Docker, which runs with `NODE_ENV=production`) it must be at least 32 random characters, or the backend refuses to start.
 - `VITE_AUTH_PAYLOAD_KEY` in the backend must match the frontend value exactly.
 - `PASSWORD_AT_REST_KEY` is used to encrypt passwords stored in the database.
 - `DATABASE_URL` is required for real database mode.
@@ -514,7 +515,7 @@ Stop Docker:
 docker compose down
 ```
 
-Docker still needs a correctly configured `backend/.env` because the backend container reads that file.
+Docker still needs a correctly configured `backend/.env` because the backend container reads that file. The container runs in production mode, so `JWT_SECRET` must be a real random value of at least 32 characters; the placeholder from `.env.example` makes the backend container stop at startup.
 
 ## 13. Main Functional Requirements
 

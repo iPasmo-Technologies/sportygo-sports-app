@@ -4,12 +4,13 @@ import { completePasswordReset, countUsersByMobileNumber, createUserPasswordAcco
 import { decryptClientPasswordPayload, decryptPasswordAtRest, encryptPasswordAtRest } from '../lib/authCrypto';
 import { sendPasswordResetPasscode, sendWelcomeEmail } from '../lib/email';
 import { authMiddleware, requireAdminRole, type AuthenticatedRequest } from '../middleware/authMiddleware';
+import { getJwtSecret } from '../lib/jwtSecret';
 
 const router = Router();
 
 const EMAIL_RE  = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 const MOBILE_RE = /^\+?[0-9]{8,15}$/;
-const JWT_SECRET = process.env.JWT_SECRET ?? 'dev-secret-change-in-production';
+const JWT_SECRET = getJwtSecret();
 
 function normalizeEmail(email: string): string {
   return email.trim().toLowerCase();

@@ -328,7 +328,7 @@ The script changes only the account's role, never its password. Running it twice
 
 - `PORT` default `3001`
 - `FRONTEND_URL` default `http://localhost:5173`
-- `JWT_SECRET` required
+- `JWT_SECRET` required. In production (`NODE_ENV=production`) it must be at least 32 random characters, or the server refuses to start; placeholder values from the docs are also refused. Generate one with `node -e "console.log(require('crypto').randomBytes(48).toString('base64'))"`. Locally, a missing value falls back to an insecure development secret with a warning.
 - `DATABASE_URL` required for Neon/Postgres mode
 - `DATABASE_SSL` default `true`
 - `DATABASE_CONNECTION_TIMEOUT_MS` default `5000`
@@ -762,6 +762,8 @@ Local Docker compose:
 ```bash
 docker compose up --build
 ```
+
+The backend image runs with `NODE_ENV=production`, so `backend/.env` needs a real `JWT_SECRET` (32+ random characters); otherwise the backend container exits at startup.
 
 Production container build examples:
 
