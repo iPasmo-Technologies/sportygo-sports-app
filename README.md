@@ -794,6 +794,36 @@ cd frontend
 npm run build
 ```
 
+## Tests and Lint
+
+Unit tests use [Vitest](https://vitest.dev/). Run them separately in each folder. They need no database, Stripe key, or SMTP server.
+
+```bash
+# backend
+cd backend
+npm test             # run all tests once
+npm run test:watch   # re-run tests when files change
+
+# frontend
+cd frontend
+npm test
+npm run test:watch
+npm run lint         # ESLint (frontend only)
+```
+
+- Test files sit next to the code they test and end in `.test.ts`, for example `backend/src/lib/bookingPricing.test.ts`.
+- Run a single file: `npx vitest run src/lib/pricing.test.ts`.
+- Run tests whose name matches some text: `npx vitest run -t "parseRate"`.
+- Backend test files are excluded from `npm run build`, so they never ship in `dist/`.
+- Pricing tests use the same expected totals in `backend/src/lib/bookingPricing.test.ts` and `frontend/src/lib/pricing.test.ts`. If you change a fee or rounding rule, update both, or one side will fail.
+- `npm run db:smoke:slot-lock` (backend) is a separate smoke check that needs a real database; it is not part of `npm test`.
+
+If tests fail with `Worker exited unexpectedly` or `JavaScript heap out of memory`, your machine is low on memory for parallel test workers. Run them one at a time:
+
+```bash
+npx vitest run --maxWorkers=1
+```
+
 ## Troubleshooting
 
 - API errors from frontend:

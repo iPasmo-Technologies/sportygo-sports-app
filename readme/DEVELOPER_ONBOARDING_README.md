@@ -233,6 +233,9 @@ Before opening a pull request:
 - `git status` shows only intended changes.
 - The frontend build passes.
 - The backend build passes.
+- `npm test` passes in both `frontend` and `backend`.
+- `npm run lint` passes in `frontend`.
+- New or changed logic has a test. For a bug fix, add a test that fails before the fix and passes after it.
 - You tested the affected user flow.
 - No `.env`, passwords, API keys, Stripe secret keys, or SMTP credentials are included.
 - The pull request description explains what changed and how it was tested.
@@ -368,6 +371,8 @@ npm.cmd run dev       # Start Vite development server
 npm.cmd run build     # Type-check and create frontend/dist
 npm.cmd run preview   # Preview the production build locally
 npm.cmd run lint      # Run ESLint
+npm.cmd test          # Run unit tests once (Vitest)
+npm.cmd run test:watch # Re-run unit tests when files change
 ```
 
 The development frontend normally starts at:
@@ -393,6 +398,8 @@ Useful backend commands:
 npm.cmd run dev       # Start TypeScript API with automatic restart
 npm.cmd run build     # Compile TypeScript into backend/dist
 npm.cmd start         # Run the compiled production server
+npm.cmd test          # Run unit tests once (Vitest, no database needed)
+npm.cmd run test:watch # Re-run unit tests when files change
 ```
 
 The development backend normally starts at:
@@ -779,6 +786,19 @@ npm.cmd run build
 ```
 
 Read the first error carefully. Fix the first relevant error, then run the build again.
+
+### Unit tests fail or crash
+
+Run the tests from the correct folder (`frontend` or `backend`) with `npm.cmd test`.
+
+- A test with a red `×` is a real failure: read its expected and received values. Never delete or weaken a test to make it pass; fix the code or ask the project lead.
+- `Worker exited unexpectedly` or `JavaScript heap out of memory` means the computer is low on memory for parallel test workers. Run them one at a time:
+
+```powershell
+npx vitest run --maxWorkers=1
+```
+
+- Run one test file: `npx vitest run src/lib/pricing.test.ts`.
 
 ## 19. Developer Safety Rules
 
