@@ -1,4 +1,4 @@
-import { Router } from 'express';
+import { Router, type NextFunction, type Request, type Response } from 'express';
 import { authMiddleware, requireAdminRole, type AuthenticatedRequest } from '../middleware/authMiddleware';
 import { BookingNotManageableError, cancelBooking, FacilityUnavailableError, listAllBookingsForAdmin, listBookingsByCustomer, rescheduleBooking, saveBooking, SlotAlreadyBookedError, SlotConfigurationMissingError, type SportFacilityRow } from '../lib/database';
 import { getStripeClient, isStripeConfigured, toMinorCurrencyUnits } from '../lib/stripe';
@@ -37,6 +37,25 @@ function notifyBookingConfirmation(input: Parameters<typeof sendBookingConfirmat
     console.error('[booking:confirmation] Notification email failed:', error);
   });
 }
+
+// Mock Pay creates confirmed bookings without payment, so it must be switched on explicitly
+// and can never run in production. Read per request so a config change needs no code change.
+function isMockPaymentEnabled(): boolean {
+  return process.env.NODE_ENV !== 'production'
+    && (process.env.MOCK_PAYMENT_ENABLED ?? '').trim().toLowerCase() === 'true';
+}
+
+function requireMockPaymentEnabled(_req: Request, res: Response, next: NextFunction): void {
+  if (!isMockPaymentEnabled()) {
+    // Same response as an unknown route, so the endpoint cannot be discovered.
+    res.status(404).json({ error: 'Not found.' });
+    return;
+  }
+  next();
+}
+
+// Only card payments through Stripe are integrated. GPAY/PAYNOW/GRABPAY are "Coming soon" in the app.
+const SUPPORTED_PAY_METHODS = new Set(['STRIPE']);
 
 // GET /api/bookings  (requires Bearer token)
 router.get('/', authMiddleware, async (req: AuthenticatedRequest, res) => {
@@ -131,8 +150,8 @@ router.patch('/:receiptId/reschedule', authMiddleware, async (req: Authenticated
   }
 });
 
-// POST /api/bookings/mock (requires Bearer token; development fallback only)
-router.post('/mock', authMiddleware, async (req: AuthenticatedRequest, res) => {
+// POST /api/bookings/mock (requires Bearer token; only when MOCK_PAYMENT_ENABLED=true outside production)
+router.post('/mock', requireMockPaymentEnabled, authMiddleware, async (req: AuthenticatedRequest, res) => {
   const customerEmail = req.user?.email?.trim().toLowerCase();
   if (!customerEmail) {
     res.status(401).json({ error: 'Authorization token is required.' });
@@ -273,6 +292,11 @@ router.post('/', authMiddleware, async (req: AuthenticatedRequest, res) => {
   if (customerEmail && !EMAIL_RE.test(customerEmail)) missingFields.push('customerEmail(valid format)');
   if (!sportId || !facilityCode) missingFields.push('sportId', 'facilityCode');
 
+  if (payMethod && !SUPPORTED_PAY_METHODS.has(payMethod)) {
+    res.status(400).json({ error: 'Unsupported payment method.' });
+    return;
+  }
+
   if (missingFields.length > 0) {
     res.status(400).json({
       error: `Missing or invalid booking fields: ${missingFields.join(', ')}.`,
@@ -356,11 +380,6 @@ router.post('/', authMiddleware, async (req: AuthenticatedRequest, res) => {
       res.status(502).json({ error: 'Unable to verify card payment. Please contact support if the charge was completed.' });
       return;
     }
-  } else {
-    const paymentSuccessful = Math.random() < 0.9;
-    responseStatus = paymentSuccessful ? 'success' : 'cash';
-    bookingStatus = paymentSuccessful ? 'confirmed' : 'cash_pending';
-    paymentMethod = paymentSuccessful ? 'ONLINE' : 'CASH';
   }
 
   try {

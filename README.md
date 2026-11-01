@@ -335,6 +335,7 @@ The script changes only the account's role, never its password. Running it twice
 - `DATABASE_POOL_MAX` default `10`
 - `STRIPE_SECRET_KEY` required for card checkout and booking confirmation
 - `STRIPE_CURRENCY` optional, defaults to `sgd`
+- `MOCK_PAYMENT_ENABLED` optional, defaults to off. `true` enables `POST /api/bookings/mock` (bookings without payment) for local testing; it is always off when `NODE_ENV=production`. Otherwise the endpoint returns `404`.
 
 ### Frontend (`frontend/.env.local`)
 

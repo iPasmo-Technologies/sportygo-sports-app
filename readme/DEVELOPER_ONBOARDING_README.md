@@ -319,6 +319,7 @@ DATABASE_CONNECTION_TIMEOUT_MS=5000
 DATABASE_POOL_MAX=10
 STRIPE_SECRET_KEY=sk_test_your_key
 STRIPE_CURRENCY=sgd
+MOCK_PAYMENT_ENABLED=true
 SMTP_HOST=smtp.example.com
 SMTP_PORT=587
 SMTP_USER=your-smtp-user
@@ -332,6 +333,7 @@ Important:
 - `PASSWORD_AT_REST_KEY` is used to encrypt passwords stored in the database.
 - `DATABASE_URL` is required for real database mode.
 - `STRIPE_SECRET_KEY` must be a Stripe test secret key for local development.
+- `MOCK_PAYMENT_ENABLED=true` lets the Mock Pay button create bookings without a card, for local testing only. It never works when `NODE_ENV=production`. Never set it on a shared or production server.
 - SMTP settings are required to send real password-reset and booking emails.
 - Do not copy production secrets into a developer laptop unless explicitly approved.
 
@@ -546,7 +548,8 @@ Docker still needs a correctly configured `backend/.env` because the backend con
 - The backend creates a Stripe PaymentIntent using the secret key.
 - The frontend confirms the payment using the publishable key.
 - Test keys and test cards must be used during development.
-- Mock payment is available only when `VITE_MOCK_PAYMENT_ENABLED=true`.
+- Mock payment is available only when the frontend has `VITE_MOCK_PAYMENT_ENABLED=true` and the backend has `MOCK_PAYMENT_ENABLED=true` outside production.
+- Card payment through Stripe is the only payment method the backend accepts. Google Pay, PayNow and GrabPay show as "Coming soon" and are rejected by the API.
 - Live Stripe keys require HTTPS in production.
 
 ### Booking and profile
