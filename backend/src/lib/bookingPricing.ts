@@ -20,8 +20,10 @@ export type BookingPricing = {
   grandTotal: number;
 };
 
+// Reads only the first number, so "S$40 / 1 hr" is 40 rather than 401.
 function parseMoneyLabel(value: string): number {
-  const parsed = Number(value.replace(/[^0-9.]/g, ''));
+  const match = value.match(/\d[\d,]*(?:\.\d+)?/);
+  const parsed = match ? Number(match[0].replace(/,/g, '')) : Number.NaN;
   if (!Number.isFinite(parsed) || parsed <= 0) {
     throw new Error(`Invalid price label: ${value}`);
   }
@@ -29,12 +31,19 @@ function parseMoneyLabel(value: string): number {
   return parsed;
 }
 
-function roundMoney(value: number): number {
-  return Number(value.toFixed(2));
+// Money is calculated in whole cents: floating-point dollars round 49.995 down to 49.99.
+// Must stay identical to frontend/src/lib/pricing.ts.
+function toCents(amount: number): number {
+  return Math.round(amount * 100);
+}
+
+function stripeFeeCents(chargeableCents: number): number {
+  const basisPoints = Math.round(STRIPE_FEE_RATE * 10000);
+  return Math.round((chargeableCents * basisPoints) / 10000);
 }
 
 export async function calculateBookingPricing(input: BookingPricingInput): Promise<BookingPricing> {
-  let priceSubtotal = 0;
+  let subtotalCents = 0;
 
   if (input.bookingType === 'court') {
     if (!input.sportId || !input.facilityCode) {
@@ -46,9 +55,12 @@ export async function calculateBookingPricing(input: BookingPricingInput): Promi
     if (!facility) {
       throw new Error('Selected facility could not be found.');
     }
+    if (!facility.enabled) {
+      throw new Error('Selected facility is not available.');
+    }
 
-    const ratePerHour = parseMoneyLabel(facility.price);
-    priceSubtotal = roundMoney(ratePerHour * (input.durationMins / 60));
+    const rateCents = toCents(parseMoneyLabel(facility.price));
+    subtotalCents = Math.round((rateCents * input.durationMins) / 60);
   } else {
     const packages = await listPackages();
     const pkg = packages.find((item) => item.id === input.packageOption);
@@ -56,17 +68,17 @@ export async function calculateBookingPricing(input: BookingPricingInput): Promi
       throw new Error('Selected package could not be found.');
     }
 
-    priceSubtotal = roundMoney(pkg.price);
+    subtotalCents = toCents(pkg.price);
   }
 
+  const chargeableCents = subtotalCents + toCents(PLATFORM_FEE);
   const isCard = input.payMethod === 'STRIPE';
-  const stripeFee = isCard ? roundMoney((priceSubtotal + PLATFORM_FEE) * STRIPE_FEE_RATE) : 0;
-  const grandTotal = roundMoney(priceSubtotal + PLATFORM_FEE + stripeFee);
+  const stripeFee = isCard ? stripeFeeCents(chargeableCents) : 0;
 
   return {
-    priceSubtotal,
-    tax: stripeFee,
+    priceSubtotal: subtotalCents / 100,
+    tax: stripeFee / 100,
     platformFee: PLATFORM_FEE,
-    grandTotal,
+    grandTotal: (chargeableCents + stripeFee) / 100,
   };
 }

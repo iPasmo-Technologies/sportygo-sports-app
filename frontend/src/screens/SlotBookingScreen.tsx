@@ -3,6 +3,7 @@ import { Circle, Clock3, MapPin } from 'lucide-react';
 import { useApp } from '@/context/AppContext';
 import { fetchSlots } from '@/lib/api';
 import { DURATIONS } from '@/lib/constants';
+import { courtSubtotal, parseRate } from '@/lib/pricing';
 import { formatDateShort, rollingDatesForMonths, toISO, announce } from '@/lib/utils';
 import Spinner from '@/components/Spinner';
 import ErrorBanner from '@/components/ErrorBanner';
@@ -79,11 +80,6 @@ function formatDurationLabel(minutes: number): string {
   return `${minutes} min`;
 }
 
-function parseRate(price: string): number {
-  const parsed = Number(price.replace(/[^0-9.]/g, ''));
-  return Number.isFinite(parsed) && parsed > 0 ? parsed : 0;
-}
-
 function facilityDayLabel(date: Date, todayIso: string): string {
   const iso = toISO(date);
   const weekday = new Intl.DateTimeFormat('en-SG', {
@@ -136,7 +132,7 @@ export default function SlotBookingScreen() {
   const selectedDateText = state.selectedDate
     ? formatDateShort(state.selectedDate)
     : 'Not selected';
-  const durationPrice = (ratePerHour * (state.durationMins / 60)).toFixed(2);
+  const durationPrice = courtSubtotal(ratePerHour, state.durationMins).toFixed(2);
 
   const blockedIntermediateTimes = useMemo(() => {
     if (!state.selectedTime) return [];
@@ -335,7 +331,7 @@ export default function SlotBookingScreen() {
             <div className="schedule-duration-grid">
               {DURATIONS.map((d) => {
                 const selected = state.durationMins === d.value;
-                const amount = (ratePerHour * (d.value / 60)).toFixed(2);
+                const amount = courtSubtotal(ratePerHour, d.value).toFixed(2);
                 return (
                   <button
                     type="button"
