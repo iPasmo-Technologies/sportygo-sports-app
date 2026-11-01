@@ -12,6 +12,7 @@ import sportsRoutes   from './routes/sports';
 import configRoutes   from './routes/config';
 import devRoutes      from './routes/dev';
 import { isDatabaseConfigured } from './lib/database';
+import { errorHandler } from './middleware/errorHandler';
 
 const app  = express();
 const PORT = parseInt(process.env.PORT ?? '3001', 10);
@@ -89,6 +90,9 @@ app.get('/api/health', (_req, res) => {
 app.use((_req, res) => {
   res.status(404).json({ error: 'Not found.' });
 });
+
+// ── Error handler (must stay last) ────────────────────────────
+app.use(errorHandler);
 
 // ── Start server ──────────────────────────────────────────────
 app.listen(PORT, () => {

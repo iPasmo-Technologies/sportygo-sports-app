@@ -1,4 +1,5 @@
 import { Router } from 'express';
+import { asyncHandler } from '../middleware/asyncHandler';
 import { authMiddleware, type AuthenticatedRequest } from '../middleware/authMiddleware';
 import { getStripeClient, isStripeConfigured, toMinorCurrencyUnits } from '../lib/stripe';
 import { calculateBookingPricing } from '../lib/bookingPricing';
@@ -8,7 +9,7 @@ const router = Router();
 const DEFAULT_CURRENCY = (process.env.STRIPE_CURRENCY ?? 'sgd').trim().toLowerCase();
 
 // POST /api/payments/stripe/payment-intent (requires Bearer token)
-router.post('/stripe/payment-intent', authMiddleware, async (req: AuthenticatedRequest, res) => {
+router.post('/stripe/payment-intent', authMiddleware, asyncHandler(async (req: AuthenticatedRequest, res) => {
   if (!isStripeConfigured()) {
     res.status(503).json({
       error: 'Stripe is not configured. Please set STRIPE_SECRET_KEY on backend.',
@@ -100,10 +101,10 @@ router.post('/stripe/payment-intent', authMiddleware, async (req: AuthenticatedR
     console.error('[payments] Stripe payment initialization failed:', error);
     res.status(502).json({ error: 'Unable to start card payment. Please try again later.' });
   }
-});
+}));
 
 // POST /api/payments/stripe/test-payment-intent (development/test environments only)
-router.post('/stripe/test-payment-intent', authMiddleware, async (req: AuthenticatedRequest, res) => {
+router.post('/stripe/test-payment-intent', authMiddleware, asyncHandler(async (req: AuthenticatedRequest, res) => {
   const testModeEnabled = process.env.NODE_ENV !== 'production'
     && await getConfigBoolean('PAYMENTS', 'PAYMENT_TEST_MODE_ENABLED', false);
   if (!testModeEnabled) {
@@ -153,6 +154,6 @@ router.post('/stripe/test-payment-intent', authMiddleware, async (req: Authentic
     console.error('[payments] Stripe test payment initialization failed:', error);
     res.status(502).json({ error: 'Unable to start card payment test. Please try again later.' });
   }
-});
+}));
 
 export default router;

@@ -15,7 +15,7 @@ Think about the long-term health of the system, not only the quick fix.
   - `backend/src/routes` = Express routes (HTTP layer, validation)
   - `backend/src/lib/database.ts` = schema, seed, and all data access/booking logic
   - `backend/src/lib` = pricing, auth crypto, Stripe, email helpers
-  - `backend/src/middleware` = JWT auth and admin role check
+  - `backend/src/middleware` = JWT auth and admin role check; `asyncHandler` (wrap every async route handler, enforced by a test) and `errorHandler` (last middleware, generic 500 responses)
   - `backend/src/scripts` = migrate, seed, reset, smoke scripts
   - `frontend/src/screens` = one component per screen; `frontend/src/context/AppContext.tsx` = state and navigation guards
   - `frontend/src/lib/api.ts` = all backend calls

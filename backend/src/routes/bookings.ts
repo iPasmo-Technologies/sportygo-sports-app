@@ -1,4 +1,5 @@
 import { Router, type NextFunction, type Request, type Response } from 'express';
+import { asyncHandler } from '../middleware/asyncHandler';
 import { authMiddleware, requireAdminRole, type AuthenticatedRequest } from '../middleware/authMiddleware';
 import { BookingNotManageableError, cancelBooking, FacilityUnavailableError, listAllBookingsForAdmin, listBookingsByCustomer, PaymentAlreadyUsedError, rescheduleBooking, saveBooking, SlotAlreadyBookedError, SlotConfigurationMissingError, type SportFacilityRow } from '../lib/database';
 import { getStripeClient, isStripeConfigured, toMinorCurrencyUnits } from '../lib/stripe';
@@ -58,7 +59,7 @@ function requireMockPaymentEnabled(_req: Request, res: Response, next: NextFunct
 const SUPPORTED_PAY_METHODS = new Set(['STRIPE']);
 
 // GET /api/bookings  (requires Bearer token)
-router.get('/', authMiddleware, async (req: AuthenticatedRequest, res) => {
+router.get('/', authMiddleware, asyncHandler(async (req: AuthenticatedRequest, res) => {
   const email = req.user?.email;
   if (!email) {
     res.status(401).json({ error: 'Authorization token is required.' });
@@ -67,18 +68,18 @@ router.get('/', authMiddleware, async (req: AuthenticatedRequest, res) => {
 
   const bookings = await listBookingsByCustomer(normalizeEmail(email));
   res.json({ bookings });
-});
+}));
 
-router.get('/admin', authMiddleware, requireAdminRole, async (_req: AuthenticatedRequest, res) => {
+router.get('/admin', authMiddleware, requireAdminRole, asyncHandler(async (_req: AuthenticatedRequest, res) => {
   try {
     res.json({ bookings: await listAllBookingsForAdmin() });
   } catch (error) {
     console.error('[admin:bookings] Unable to list bookings.', error);
     res.status(500).json({ error: 'Unable to load bookings at the moment. Please try again.' });
   }
-});
+}));
 
-router.delete('/:receiptId', authMiddleware, async (req: AuthenticatedRequest, res) => {
+router.delete('/:receiptId', authMiddleware, asyncHandler(async (req: AuthenticatedRequest, res) => {
   const email = req.user?.email;
   if (!email) {
     res.status(401).json({ error: 'Authorization token is required.' });
@@ -104,9 +105,9 @@ router.delete('/:receiptId', authMiddleware, async (req: AuthenticatedRequest, r
     console.error('[bookings] Unable to cancel booking.', error);
     res.status(500).json({ error: 'Unable to cancel booking. Please try again.' });
   }
-});
+}));
 
-router.patch('/:receiptId/reschedule', authMiddleware, async (req: AuthenticatedRequest, res) => {
+router.patch('/:receiptId/reschedule', authMiddleware, asyncHandler(async (req: AuthenticatedRequest, res) => {
   const email = req.user?.email;
   const { selectedDate, selectedTime } = req.body as { selectedDate?: string; selectedTime?: string };
   if (!email) {
@@ -148,10 +149,10 @@ router.patch('/:receiptId/reschedule', authMiddleware, async (req: Authenticated
     console.error('[bookings] Unable to reschedule booking.', error);
     res.status(500).json({ error: 'Unable to reschedule booking. Please try again.' });
   }
-});
+}));
 
 // POST /api/bookings/mock (requires Bearer token; only when MOCK_PAYMENT_ENABLED=true outside production)
-router.post('/mock', requireMockPaymentEnabled, authMiddleware, async (req: AuthenticatedRequest, res) => {
+router.post('/mock', requireMockPaymentEnabled, authMiddleware, asyncHandler(async (req: AuthenticatedRequest, res) => {
   const customerEmail = req.user?.email?.trim().toLowerCase();
   if (!customerEmail) {
     res.status(401).json({ error: 'Authorization token is required.' });
@@ -244,10 +245,10 @@ router.post('/mock', requireMockPaymentEnabled, authMiddleware, async (req: Auth
   });
 
   res.json({ receiptId: payload.receiptId, status: 'success', paymentMethod: 'ONLINE' });
-});
+}));
 
 // POST /api/bookings  (requires Bearer token)
-router.post('/', authMiddleware, async (req: AuthenticatedRequest, res) => {
+router.post('/', authMiddleware, asyncHandler(async (req: AuthenticatedRequest, res) => {
   const {
     bookingType, sportId, facilityCode, selectedDate, selectedTime, durationMins,
     packageOption, payMethod, grandTotal, receiptId, customerEmail: bodyCustomerEmail,
@@ -461,6 +462,6 @@ router.post('/', authMiddleware, async (req: AuthenticatedRequest, res) => {
     cardBrand,
     cardLast4,
   });
-});
+}));
 
 export default router;
