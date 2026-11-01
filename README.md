@@ -816,6 +816,8 @@ npm run build
 
 Unit tests use [Vitest](https://vitest.dev/). Run them separately in each folder. They need no database, Stripe key, or SMTP server.
 
+GitHub Actions ([`.github/workflows/ci.yml`](.github/workflows/ci.yml)) runs the same checks on every pull request and every push to `main`, on Node 22: backend build and tests; frontend lint, tests and build. A pull request with a red check should not be merged.
+
 ```bash
 # backend
 cd backend

@@ -234,6 +234,7 @@ Before opening a pull request:
 - The frontend build passes.
 - The backend build passes.
 - `npm test` passes in both `frontend` and `backend`.
+- The GitHub **CI** check on the pull request is green. It runs the build, lint and tests automatically; open its log on GitHub to see what failed.
 - `npm run lint` passes in `frontend`.
 - New or changed logic has a test. For a bug fix, add a test that fails before the fix and passes after it.
 - You tested the affected user flow.
