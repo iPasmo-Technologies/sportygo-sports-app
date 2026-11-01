@@ -9,8 +9,8 @@ Think about the long-term health of the system, not only the quick fix.
 - What it is: SportyGo, a sports facility and coaching booking system (Singapore, SGD, `Asia/Singapore` time).
 - Stack: React 18 + TypeScript + Vite (frontend); Node.js + Express 4 + TypeScript (backend); PostgreSQL on Neon via `pg`; Stripe for card payments; Nodemailer/SMTP for email. Hosting: Cloudflare Pages (frontend) and Cloudflare Containers (backend, `cloudflare/backend-worker`); Docker, Netlify, Render and AWS are also documented in `readme/`.
 - Run locally: `cd backend && npm run dev` (port 3001) and `cd frontend && npm run dev` (port 5173). Database setup: `cd backend && npm run db:migrate && npm run db:seed`.
-- Run tests: none yet (being added on `feature/initial-unit-tests`). `cd backend && npm run db:smoke:slot-lock` is a smoke check that needs a live database.
-- Lint/format: `cd frontend && npm run lint` (no ESLint config yet, so it does not run). Backend has no linter. Type check: `npm run build` in each folder.
+- Run tests: `npm test` in `backend/` and in `frontend/` (Vitest; `npm run test:watch` re-runs on save). Test files sit next to the code as `*.test.ts`. `cd backend && npm run db:smoke:slot-lock` is a separate smoke check that needs a live database.
+- Lint/format: `cd frontend && npm run lint` (ESLint, config in `frontend/.eslintrc.cjs`). Backend has no linter yet. Type check: `npm run build` in each folder.
 - Key folders:
   - `backend/src/routes` = Express routes (HTTP layer, validation)
   - `backend/src/lib/database.ts` = schema, seed, and all data access/booking logic
