@@ -3,7 +3,6 @@ import { Pool, type PoolClient, type QueryResultRow } from 'pg';
 import DEFAULT_SPORTS from '../data/json/sports.json';
 import DEFAULT_SPORT_EVENTS from '../data/json/sport-events.json';
 import DEFAULT_SPORT_FACILITIES from '../data/json/sport-facilities.json';
-import { decryptPasswordAtRest, encryptPasswordAtRest } from './authCrypto';
 
 export type PackageRow = {
   id: string;
@@ -1261,44 +1260,6 @@ async function ensureSchema(client: PoolClient): Promise<void> {
   `);
 }
 
-async function ensureInitialAdminUser(client: PoolClient): Promise<void> {
-  const email = 'dharmichand@sportygo.com.sg';
-  const passwordEncrypted = await encryptPasswordAtRest('Admin@123');
-
-  const existingResult = await client.query<{ password_encrypted: string }>(
-    `SELECT password_encrypted
-     FROM users
-     WHERE email = $1
-     LIMIT 1`,
-    [email]
-  );
-  let repairPassword = existingResult.rowCount === 0;
-  if (existingResult.rows[0]?.password_encrypted) {
-    try {
-      await decryptPasswordAtRest(existingResult.rows[0].password_encrypted);
-    } catch {
-      repairPassword = true;
-    }
-  }
-
-  await client.query(
-    `INSERT INTO users (
-       email, full_name, mobile_number, password_encrypted, auth_provider, role, created_by, updated_by
-     ) VALUES ($1, $2, $3, $4, 'password', 'admin', 'system', 'system')
-     ON CONFLICT (email)
-     DO UPDATE SET
-       role = 'admin',
-       password_encrypted = CASE
-         WHEN $5::boolean THEN EXCLUDED.password_encrypted
-         ELSE users.password_encrypted
-       END,
-       updated_at = NOW(),
-       updated_by = 'system',
-       deleted_at = NULL`,
-    [email, 'Dharmichand', '+6500000000', passwordEncrypted, repairPassword]
-  );
-}
-
 export async function ensureDatabaseReady(): Promise<void> {
   if (!pool) {
     return;
@@ -1310,7 +1271,6 @@ export async function ensureDatabaseReady(): Promise<void> {
       try {
         await client.query('BEGIN');
         await ensureSchema(client);
-        await ensureInitialAdminUser(client);
         await client.query('COMMIT');
       } catch (error) {
         await client.query('ROLLBACK');
@@ -2367,6 +2327,40 @@ export async function findUserByEmail(email: string): Promise<UserAuthRow | null
   return rows[0] ?? null;
 }
 
+export type PromoteAdminResult = 'promoted' | 'already-admin' | 'not-found';
+
+const ADMIN_EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+
+// Admins are never created by code: a person registers normally, then an operator runs
+// `npm run admin:promote -- <email>`. Only the role changes; the password is never touched.
+export async function promoteUserToAdmin(email: string): Promise<PromoteAdminResult> {
+  const normalizedEmail = email.trim().toLowerCase();
+  if (!ADMIN_EMAIL_RE.test(normalizedEmail) || normalizedEmail.length > 254) {
+    throw new Error('A valid email address is required.');
+  }
+
+  const user = await findUserByEmail(normalizedEmail);
+  if (!user) {
+    return 'not-found';
+  }
+  if (user.role === 'admin') {
+    return 'already-admin';
+  }
+
+  const rows = await query<{ email: string }>(
+    `UPDATE users
+     SET role = 'admin',
+         updated_at = NOW(),
+         updated_by = 'admin:promote-script'
+     WHERE deleted_at IS NULL
+       AND LOWER(email) = LOWER($1)
+     RETURNING email`,
+    [normalizedEmail]
+  );
+
+  return rows.length > 0 ? 'promoted' : 'not-found';
+}
+
 export async function listAllUsersForAdmin(): Promise<AdminUserRow[]> {
   if (!pool) {
     return [...fallbackUsers.values()].map((user) => ({
@@ -2762,7 +2756,6 @@ export async function seedDatabase(): Promise<void> {
     await client.query('BEGIN');
     try {
       await ensureSchema(client);
-      await ensureInitialAdminUser(client);
       await client.query('DELETE FROM sport_facilities');
       await client.query('DELETE FROM sport_events');
       await client.query('DELETE FROM sports');

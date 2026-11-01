@@ -398,6 +398,7 @@ Useful backend commands:
 npm.cmd run dev       # Start TypeScript API with automatic restart
 npm.cmd run build     # Compile TypeScript into backend/dist
 npm.cmd start         # Run the compiled production server
+npm.cmd run admin:promote -- <email> # Make a registered user an admin
 npm.cmd test          # Run unit tests once (Vitest, no database needed)
 npm.cmd run test:watch # Re-run unit tests when files change
 ```
@@ -437,7 +438,22 @@ To reset seedable local data and repopulate it:
 npm.cmd run db:reset:seed
 ```
 
-Use reset commands carefully. They may delete local development data.
+Use reset commands carefully. They may delete local development data, including every user account.
+
+### Create a local admin account
+
+Admin screens (block slots, view users, all bookings) need an admin account. No admin is created automatically.
+
+1. Register in the app with your own test email and password.
+2. From the `backend` folder, run:
+
+```powershell
+npm.cmd run admin:promote -- your-test-email@example.com
+```
+
+3. Log out and log in again.
+
+Only promote accounts on databases you are allowed to change. Never promote accounts on the production database unless the project lead asks you to.
 
 Check backend and database readiness:
 

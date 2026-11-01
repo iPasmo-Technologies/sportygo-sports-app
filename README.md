@@ -304,8 +304,23 @@ Auth persistence:
 
 Database reset utility:
 
-- `npm run db:reset:seed` is the supported reset operation. It truncates seedable tables, including `slots`, then repopulates schema configuration and seed rules. Slot rows are recreated on demand.
+- `npm run db:reset:seed` is the supported reset operation. It truncates seedable tables, including `slots` and `users`, then repopulates schema configuration and seed rules. Slot rows are recreated on demand. **All accounts are deleted, including admins**; create an admin again as described below.
 - `POST /api/dev/reset-seed` is currently disabled in the source and must not be used for environment resets.
+
+Creating an admin account:
+
+No admin account is created automatically, and no admin password is stored in code or configuration. To make someone an admin:
+
+1. They register through the app with their own email and password.
+2. From `backend/`, with `DATABASE_URL` pointing at the right database, run:
+
+   ```bash
+   npm run admin:promote -- their-email@example.com
+   ```
+
+3. They log out and log in again to get admin access.
+
+The script changes only the account's role, never its password. Running it twice is safe. It reports an error if no active account exists for that email. Do this once per new or reset environment.
 
 ## Environment Variables
 
@@ -395,7 +410,7 @@ Local URLs:
 - Backend: `http://localhost:3001`
 - Health: `http://localhost:3001/api/health`
 
-To reset a local database, stop the backend and run `npm run db:reset:seed` from `backend/`.
+To reset a local database, stop the backend and run `npm run db:reset:seed` from `backend/`. This deletes all accounts; register again and run `npm run admin:promote -- <email>` if you need an admin.
 
 ### Production Deployment
 
