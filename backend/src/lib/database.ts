@@ -131,6 +131,7 @@ type BookingInput = {
   facilityImageKey?: SportFacilityRow['imageKey'] | null;
   facilityTag?: string | null;
   lockToken?: string | null;
+  stripePaymentIntentId?: string | null;
 };
 
 export type ConfigValueType = 'STRING' | 'INTEGER' | 'DECIMAL' | 'BOOLEAN' | 'JSON';
@@ -224,6 +225,24 @@ export class FacilityUnavailableError extends Error {
     super('The selected sport facility does not exist or is disabled.');
     this.name = 'FacilityUnavailableError';
   }
+}
+
+export class PaymentAlreadyUsedError extends Error {
+  constructor() {
+    super('This payment has already been used for another booking.');
+    this.name = 'PaymentAlreadyUsedError';
+  }
+}
+
+const STRIPE_PAYMENT_UNIQUE_INDEX = 'idx_bookings_stripe_payment_intent_unique';
+
+// Postgres reports a unique-index clash as code 23505 with the index name as `constraint`.
+export function isStripePaymentReuseViolation(error: unknown): boolean {
+  if (typeof error !== 'object' || error === null) {
+    return false;
+  }
+  const { code, constraint } = error as { code?: unknown; constraint?: unknown };
+  return code === '23505' && constraint === STRIPE_PAYMENT_UNIQUE_INDEX;
 }
 
 const DATABASE_URL = process.env.DATABASE_URL ?? '';
@@ -1156,6 +1175,14 @@ async function ensureSchema(client: PoolClient): Promise<void> {
   await client.query('ALTER TABLE bookings ADD COLUMN IF NOT EXISTS facility_tag TEXT NULL');
   await client.query('ALTER TABLE bookings ADD COLUMN IF NOT EXISTS sport_id TEXT NULL');
   await client.query('ALTER TABLE bookings ADD COLUMN IF NOT EXISTS facility_code TEXT NULL');
+  await client.query('ALTER TABLE bookings ADD COLUMN IF NOT EXISTS stripe_payment_intent_id TEXT NULL');
+  // One Stripe payment can confirm only one booking. Rows without a payment id (older bookings,
+  // Mock Pay) are not covered by the index.
+  await client.query(`
+    CREATE UNIQUE INDEX IF NOT EXISTS ${STRIPE_PAYMENT_UNIQUE_INDEX}
+    ON bookings (stripe_payment_intent_id)
+    WHERE stripe_payment_intent_id IS NOT NULL
+  `);
   await client.query('ALTER TABLE bookings DROP CONSTRAINT IF EXISTS bookings_status_check');
   await client.query(`
     ALTER TABLE bookings
@@ -1866,6 +1893,17 @@ export async function saveBooking(input: BookingInput): Promise<void> {
       if (facilityResult.rowCount === 0) {
         throw new FacilityUnavailableError();
       }
+      if (input.stripePaymentIntentId) {
+        const usedResult = await client.query(
+          `SELECT 1 FROM bookings
+           WHERE stripe_payment_intent_id = $1
+           LIMIT 1`,
+          [input.stripePaymentIntentId]
+        );
+        if ((usedResult.rowCount ?? 0) > 0) {
+          throw new PaymentAlreadyUsedError();
+        }
+      }
       if (isPastOrCurrentSlot(input.selectedDate, input.selectedTime, currentDateTime)) {
         // Allow booking to proceed if the user holds a valid reservation (locked before slot became past)
         let bypassPastCheck = false;
@@ -1975,8 +2013,9 @@ export async function saveBooking(input: BookingInput): Promise<void> {
            status,
            payment_method,
            created_by,
-           updated_by
-         ) VALUES ($1, $2, $3, $4, $5::time, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19)`,
+           updated_by,
+           stripe_payment_intent_id
+         ) VALUES ($1, $2, $3, $4, $5::time, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20)`,
         [
           input.bookingType,
           input.sportId ?? null,
@@ -1997,6 +2036,7 @@ export async function saveBooking(input: BookingInput): Promise<void> {
           input.paymentMethod,
           customerEmail,
           customerEmail,
+          input.stripePaymentIntentId ?? null,
         ]
       );
 
@@ -2011,7 +2051,8 @@ export async function saveBooking(input: BookingInput): Promise<void> {
       await client.query('COMMIT');
     } catch (error) {
       await client.query('ROLLBACK');
-      throw error;
+      // Two requests with the same payment can both pass the check above; the unique index stops the second.
+      throw isStripePaymentReuseViolation(error) ? new PaymentAlreadyUsedError() : error;
     }
   });
 }

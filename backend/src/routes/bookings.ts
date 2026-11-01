@@ -1,6 +1,6 @@
 import { Router, type NextFunction, type Request, type Response } from 'express';
 import { authMiddleware, requireAdminRole, type AuthenticatedRequest } from '../middleware/authMiddleware';
-import { BookingNotManageableError, cancelBooking, FacilityUnavailableError, listAllBookingsForAdmin, listBookingsByCustomer, rescheduleBooking, saveBooking, SlotAlreadyBookedError, SlotConfigurationMissingError, type SportFacilityRow } from '../lib/database';
+import { BookingNotManageableError, cancelBooking, FacilityUnavailableError, listAllBookingsForAdmin, listBookingsByCustomer, PaymentAlreadyUsedError, rescheduleBooking, saveBooking, SlotAlreadyBookedError, SlotConfigurationMissingError, type SportFacilityRow } from '../lib/database';
 import { getStripeClient, isStripeConfigured, toMinorCurrencyUnits } from '../lib/stripe';
 import { calculateBookingPricing } from '../lib/bookingPricing';
 import { type SportRow } from '../lib/database';
@@ -215,6 +215,7 @@ router.post('/mock', requireMockPaymentEnabled, authMiddleware, async (req: Auth
       facilityImageKey: toFacilityImageKey(payload.facilityImageKey),
       facilityTag: payload.facilityTag?.trim() || null,
       lockToken: payload.lockToken ?? null,
+      stripePaymentIntentId: null,
     });
   } catch (error) {
     if (error instanceof FacilityUnavailableError) {
@@ -367,6 +368,13 @@ router.post('/', authMiddleware, async (req: AuthenticatedRequest, res) => {
         return;
       }
 
+      // Checkout creates each payment with the booking's receipt id, and receipt ids are unique,
+      // so a payment can only ever pay for the one booking it was made for.
+      if ((intent.metadata.receiptId ?? '').trim() !== receiptId.trim()) {
+        res.status(403).json({ error: 'Stripe payment does not belong to this booking.' });
+        return;
+      }
+
       responseStatus = 'success';
       bookingStatus = 'confirmed';
       paymentMethod = 'ONLINE';
@@ -402,10 +410,15 @@ router.post('/', authMiddleware, async (req: AuthenticatedRequest, res) => {
       facilityImageKey: toFacilityImageKey(facilityImageKey),
       facilityTag: facilityTag?.trim() || null,
       lockToken: lockToken ?? null,
+      stripePaymentIntentId: stripePaymentIntentId?.trim() || null,
     });
   } catch (error) {
     if (error instanceof FacilityUnavailableError) {
       res.status(400).json({ error: error.message });
+      return;
+    }
+    if (error instanceof PaymentAlreadyUsedError) {
+      res.status(409).json({ error: 'This payment has already been used for another booking.' });
       return;
     }
     if (error instanceof SlotAlreadyBookedError) {

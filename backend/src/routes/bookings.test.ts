@@ -15,7 +15,9 @@ vi.mock('../lib/database', () => {
   class SlotConfigurationMissingError extends Error {}
   class FacilityUnavailableError extends Error {}
   class BookingNotManageableError extends Error {}
+  class PaymentAlreadyUsedError extends Error {}
   return {
+    PaymentAlreadyUsedError,
     saveBooking: vi.fn(),
     cancelBooking: vi.fn(),
     rescheduleBooking: vi.fn(),
@@ -38,7 +40,7 @@ vi.mock('../lib/stripe', () => ({
   toMinorCurrencyUnits: (amount: number) => Math.round(amount * 100),
 }));
 
-import { saveBooking } from '../lib/database';
+import { PaymentAlreadyUsedError, saveBooking } from '../lib/database';
 import { calculateBookingPricing } from '../lib/bookingPricing';
 import { sendBookingConfirmationEmail } from '../lib/email';
 import { getStripeClient, isStripeConfigured } from '../lib/stripe';
@@ -75,7 +77,8 @@ function paidIntent(overrides: Record<string, unknown> = {}) {
     amount: 6365,
     amount_received: 6365,
     receipt_email: CUSTOMER,
-    metadata: {},
+    // The checkout creates each payment with the booking's receipt id (CheckoutScreen.tsx).
+    metadata: { receiptId: 'SGO-26ABC123' },
     payment_method: { card: { brand: 'visa', last4: '4242' } },
     ...overrides,
   };
@@ -118,6 +121,33 @@ describe('POST /api/bookings - card payments (STRIPE)', () => {
     expect(saveBooking).toHaveBeenCalledWith(expect.objectContaining({
       bookingStatus: 'confirmed', paymentMethod: 'ONLINE', customerEmail: CUSTOMER, grandTotal: 63.65,
     }));
+  });
+
+  // Regression: the payment id was never stored, so one payment could confirm many bookings.
+  it('stores the Stripe payment id with the booking', async () => {
+    await postBooking({ ...BOOKING, stripePaymentIntentId: '  pi_test_123  ' });
+    expect(saveBooking).toHaveBeenCalledWith(expect.objectContaining({ stripePaymentIntentId: 'pi_test_123' }));
+  });
+
+  it('rejects a payment that was already used for another booking (409)', async () => {
+    vi.mocked(saveBooking).mockRejectedValue(new PaymentAlreadyUsedError());
+    const res = await postBooking(BOOKING);
+    expect(res.status).toBe(409);
+    expect(res.body).toEqual({ error: 'This payment has already been used for another booking.' });
+  });
+
+  // A payment made for one booking (one receipt id) cannot pay for another, including payments
+  // made before payment ids were stored.
+  it.each([
+    ['a different receipt id', { receiptId: 'SGO-26OTHER1' }],
+    ['no receipt id', {}],
+    ['an empty receipt id', { receiptId: '' }],
+  ])('rejects a payment created for %s', async (_name, metadata) => {
+    retrieveIntent.mockResolvedValue(paidIntent({ metadata }));
+    const res = await postBooking(BOOKING);
+    expect(res.status).toBe(403);
+    expect(res.body).toEqual({ error: 'Stripe payment does not belong to this booking.' });
+    expect(saveBooking).not.toHaveBeenCalled();
   });
 
   it('rejects a Stripe payment that is not completed', async () => {
@@ -211,7 +241,9 @@ describe('POST /api/bookings/mock', () => {
     const res = await postMock();
     expect(res.status).toBe(200);
     expect(res.body).toEqual({ receiptId: 'SGO-26ABC123', status: 'success', paymentMethod: 'ONLINE' });
-    expect(saveBooking).toHaveBeenCalledWith(expect.objectContaining({ bookingStatus: 'confirmed', customerEmail: CUSTOMER }));
+    expect(saveBooking).toHaveBeenCalledWith(expect.objectContaining({
+      bookingStatus: 'confirmed', customerEmail: CUSTOMER, stripePaymentIntentId: null,
+    }));
   });
 
   it('accepts " TRUE " (spaces and capitals) as enabled', async () => {
