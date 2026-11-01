@@ -862,6 +862,8 @@ run `npm run db:seed` again.
 create at least one booking with your logged-in account and refresh My Bookings.
 - Auth token errors:
 check `JWT_SECRET` and request `Authorization: Bearer <token>`.
+- Emails (welcome, booking, password reset) not arriving:
+look for the `[email]` line in the backend startup log. `SMTP ready` means login works; `SMTP not configured` means one of `SMTP_HOST`, `SMTP_PORT`, `SMTP_USER`, `SMTP_PASS`, `SMTP_FROM` is missing; `SMTP check failed` shows the reason (`EAUTH` = login rejected, `ETIMEDOUT`/`ESOCKET` = port blocked or wrong, `EDNS` = unknown host). Test from `backend/` with `npm run email:verify` (no email sent) or `npm run email:verify -- you@example.com` (sends a test email). Port `465` uses TLS; `587` uses STARTTLS.
 
 ## Deployment Notes
 

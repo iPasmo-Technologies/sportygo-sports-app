@@ -9,6 +9,7 @@
     "db:reset:seed": "ts-node src/scripts/resetSeed.ts",
     "db:smoke:slot-lock": "ts-node src/scripts/smokeSlotLock.ts",
     "admin:promote": "ts-node src/scripts/promoteAdmin.ts",
+    "email:verify": "ts-node src/scripts/verifyEmail.ts",
     "build": "tsc",
     "start": "node dist/index.js",
     "test": "vitest run",

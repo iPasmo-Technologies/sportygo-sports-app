@@ -13,6 +13,7 @@ import configRoutes   from './routes/config';
 import devRoutes      from './routes/dev';
 import { isDatabaseConfigured } from './lib/database';
 import { errorHandler } from './middleware/errorHandler';
+import { describeSmtpSettings, verifySmtpConnection } from './lib/email';
 
 const app  = express();
 const PORT = parseInt(process.env.PORT ?? '3001', 10);
@@ -98,4 +99,18 @@ app.use(errorHandler);
 app.listen(PORT, () => {
   console.log(`[backend] Listening on http://localhost:${PORT}`);
   console.log(`[backend] Accepting requests from: ${allowedOrigins.length > 0 ? allowedOrigins.join(', ') : 'all origins (no FRONTEND_URL/FRONTEND_URLS configured)'}`);
+  void logSmtpStatus();
 });
+
+// Emails are sent in the background, so a broken mail setup is otherwise silent. One line in the
+// startup log shows whether sending can work and, if not, why (e.g. EAUTH, ETIMEDOUT).
+async function logSmtpStatus(): Promise<void> {
+  const check = await verifySmtpConnection();
+  if (check.status === 'ok') {
+    console.log(`[email] SMTP ready: ${describeSmtpSettings()}`);
+  } else if (check.status === 'not-configured') {
+    console.warn('[email] SMTP not configured (SMTP_HOST, SMTP_PORT, SMTP_USER, SMTP_PASS, SMTP_FROM): no emails will be sent.');
+  } else {
+    console.error(`[email] SMTP check failed for ${describeSmtpSettings()}: ${check.code ?? 'ERROR'} ${check.message}`);
+  }
+}

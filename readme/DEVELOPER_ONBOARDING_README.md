@@ -769,6 +769,9 @@ Check:
 - The backend terminal shows the email result or SMTP error.
 - The message is not in spam or a provider suppression list.
 - FakeSMTP is running if you intentionally configured local FakeSMTP.
+- The backend startup log shows an `[email]` line: `SMTP ready`, `SMTP not configured`, or `SMTP check failed` with a reason code.
+- From the `backend` folder, `npm.cmd run email:verify` checks the connection and login without sending anything, and `npm.cmd run email:verify -- your-test@example.com` sends a test email. Neither prints the password.
+- Without SMTP settings, local development prints the reset code in the backend terminal so you can still test password reset. Production never logs reset codes.
 
 The backend does not write application logs to a file by default. To capture development output:
 

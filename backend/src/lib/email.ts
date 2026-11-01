@@ -4,10 +4,55 @@ const SMTP_HOST = process.env.SMTP_HOST?.trim() ?? '';
 const SMTP_PORT = Number(process.env.SMTP_PORT ?? '587');
 const SMTP_USER = process.env.SMTP_USER?.trim() ?? '';
 const SMTP_PASS = process.env.SMTP_PASS ?? '';
-const SMTP_FROM = process.env.SMTP_FROM?.trim() ?? SMTP_USER;
+const SMTP_FROM = process.env.SMTP_FROM?.trim() || SMTP_USER;
+const IS_PRODUCTION = process.env.NODE_ENV === 'production';
 
 function hasSmtpConfig(): boolean {
   return Boolean(SMTP_HOST && SMTP_PORT && SMTP_USER && SMTP_PASS && SMTP_FROM);
+}
+
+// Port 465 uses TLS from the first byte; 587 upgrades with STARTTLS. Short timeouts make a blocked
+// port or silent server fail in seconds (Nodemailer's defaults wait up to 2-10 minutes).
+function createSmtpTransport() {
+  return nodemailer.createTransport({
+    host: SMTP_HOST,
+    port: SMTP_PORT,
+    secure: SMTP_PORT === 465,
+    auth: { user: SMTP_USER, pass: SMTP_PASS },
+    connectionTimeout: 10_000,
+    greetingTimeout: 10_000,
+    socketTimeout: 20_000,
+  });
+}
+
+// Customer emails are personal data: logs only ever show a masked form.
+function maskEmail(email: string): string {
+  const [localPart, domain] = email.split('@');
+  return localPart && domain ? `${localPart.slice(0, 2)}***@${domain}` : '***';
+}
+
+export function describeSmtpSettings(): string {
+  return `${SMTP_HOST}:${SMTP_PORT} (${SMTP_PORT === 465 ? 'TLS' : 'STARTTLS'}) as ${maskEmail(SMTP_USER)}`;
+}
+
+export type SmtpCheck =
+  | { status: 'ok' }
+  | { status: 'not-configured' }
+  | { status: 'failed'; code?: string; message: string };
+
+// Connects and logs in without sending anything. Error codes such as EAUTH (login rejected),
+// ETIMEDOUT/ESOCKET (port blocked or server silent) or EDNS (unknown host) explain why mail fails.
+export async function verifySmtpConnection(): Promise<SmtpCheck> {
+  if (!hasSmtpConfig()) {
+    return { status: 'not-configured' };
+  }
+  try {
+    await createSmtpTransport().verify();
+    return { status: 'ok' };
+  } catch (error) {
+    const { code, message } = error as { code?: string; message?: string };
+    return { status: 'failed', code, message: message ?? String(error) };
+  }
 }
 
 function escapeHtml(value: string): string {
@@ -63,7 +108,7 @@ export type AdminSlotBlockEmail = {
 
 export async function sendAdminSlotBlockEmail(input: AdminSlotBlockEmail): Promise<void> {
   if (!hasSmtpConfig()) {
-    console.warn('[admin:block-slots] SMTP not configured; email not sent.', input.adminEmail);
+    console.warn('[admin:block-slots] SMTP not configured; email not sent.');
     return;
   }
 
@@ -93,19 +138,14 @@ export async function sendAdminSlotBlockEmail(input: AdminSlotBlockEmail): Promi
       <p style="color:#d4a556;font-weight:700;">Payment not applicable</p>
     </div>`;
 
-  const transporter = nodemailer.createTransport({
-    host: SMTP_HOST,
-    port: SMTP_PORT,
-    secure: SMTP_PORT === 465,
-    auth: { user: SMTP_USER, pass: SMTP_PASS },
-  });
+  const transporter = createSmtpTransport();
 
   await transporter.sendMail({ from: SMTP_FROM, to: input.adminEmail, subject, text, html });
 }
 
 export async function sendWelcomeEmail(input: WelcomeEmail): Promise<void> {
   if (!hasSmtpConfig()) {
-    console.warn('[auth:welcome] SMTP not configured; email not sent.', input.email);
+    console.warn('[auth:welcome] SMTP not configured; email not sent.');
     return;
   }
 
@@ -171,12 +211,7 @@ export async function sendWelcomeEmail(input: WelcomeEmail): Promise<void> {
       </div>
     </div>`;
 
-  const transporter = nodemailer.createTransport({
-    host: SMTP_HOST,
-    port: SMTP_PORT,
-    secure: SMTP_PORT === 465,
-    auth: { user: SMTP_USER, pass: SMTP_PASS },
-  });
+  const transporter = createSmtpTransport();
 
   const result = await transporter.sendMail({ from: SMTP_FROM, to: input.email, subject, text, html });
   console.log(`[email:welcome] SMTP accepted=${result.accepted.length} rejected=${result.rejected.length}`);
@@ -184,7 +219,7 @@ export async function sendWelcomeEmail(input: WelcomeEmail): Promise<void> {
 
 export async function sendBookingConfirmationEmail(input: BookingConfirmationEmail): Promise<void> {
   if (!hasSmtpConfig()) {
-    console.warn('[booking:confirmation] SMTP not configured; email not sent.', input.email);
+    console.warn('[booking:confirmation] SMTP not configured; email not sent.');
     return;
   }
 
@@ -217,19 +252,14 @@ export async function sendBookingConfirmationEmail(input: BookingConfirmationEma
       <p style="color:#c6cfdd;">Please keep this email for your records.</p>
     </div>`;
 
-  const transporter = nodemailer.createTransport({
-    host: SMTP_HOST,
-    port: SMTP_PORT,
-    secure: SMTP_PORT === 465,
-    auth: { user: SMTP_USER, pass: SMTP_PASS },
-  });
+  const transporter = createSmtpTransport();
 
   await transporter.sendMail({ from: SMTP_FROM, to: input.email, subject, text, html });
 }
 
 export async function sendBookingUpdateEmail(input: BookingUpdateEmail): Promise<void> {
   if (!hasSmtpConfig()) {
-    console.warn('[booking:update] SMTP not configured; email not sent.', input.email);
+    console.warn('[booking:update] SMTP not configured; email not sent.');
     return;
   }
 
@@ -248,12 +278,7 @@ export async function sendBookingUpdateEmail(input: BookingUpdateEmail): Promise
       <p style="color:#c6cfdd;line-height:1.6;">${escapeHtml(detail)}</p>
     </div>`;
 
-  const transporter = nodemailer.createTransport({
-    host: SMTP_HOST,
-    port: SMTP_PORT,
-    secure: SMTP_PORT === 465,
-    auth: { user: SMTP_USER, pass: SMTP_PASS },
-  });
+  const transporter = createSmtpTransport();
   await transporter.sendMail({ from: SMTP_FROM, to: input.email, subject, text, html });
 }
 
@@ -279,19 +304,17 @@ export async function sendPasswordResetPasscode(input: { email: string; code: st
   `;
 
   if (!hasSmtpConfig()) {
-    console.log(`[auth:reset-code] SMTP not configured. Email=${input.email} Code=${input.code}`);
+    // Anyone who reads a reset code can take over the account, so production never logs it.
+    // Locally it is printed so password reset can be tested without an SMTP server.
+    if (IS_PRODUCTION) {
+      console.warn('[auth:reset-code] SMTP not configured; reset code email not sent.');
+    } else {
+      console.log(`[auth:reset-code] SMTP not configured (development). ${maskEmail(input.email)} code=${input.code}`);
+    }
     return;
   }
 
-  const transporter = nodemailer.createTransport({
-    host: SMTP_HOST,
-    port: SMTP_PORT,
-    secure: SMTP_PORT === 465,
-    auth: {
-      user: SMTP_USER,
-      pass: SMTP_PASS,
-    },
-  });
+  const transporter = createSmtpTransport();
 
   const result = await transporter.sendMail({
     from: SMTP_FROM,
