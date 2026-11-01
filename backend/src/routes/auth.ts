@@ -11,6 +11,7 @@ const router = Router();
 
 const EMAIL_RE  = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 const MOBILE_RE = /^\+?[0-9]{8,15}$/;
+const NAME_MAX_LENGTH = 100;
 const JWT_SECRET = getJwtSecret();
 
 function normalizeEmail(email: string): string {
@@ -46,7 +47,7 @@ router.get('/profile', authMiddleware, asyncHandler(async (req: AuthenticatedReq
 
 // PUT /api/auth/profile — update user profile (full name and mobile number)
 router.put('/profile', authMiddleware, asyncHandler(async (req: AuthenticatedRequest, res) => {
-  const { fullName, mobileNumber } = req.body as { fullName?: string; mobileNumber?: string };
+  const { fullName, mobileNumber } = req.body as { fullName?: unknown; mobileNumber?: unknown };
   const userEmail = req.user?.email;
 
   if (!userEmail) {
@@ -54,37 +55,49 @@ router.put('/profile', authMiddleware, asyncHandler(async (req: AuthenticatedReq
     return;
   }
 
-  if (!fullName || !fullName.trim()) {
+  const normalizedName = typeof fullName === 'string' ? fullName.trim() : '';
+  const normalizedMobile = typeof mobileNumber === 'string' ? mobileNumber.trim() : '';
+
+  if (!normalizedName) {
     res.status(400).json({ error: 'Full name is required.' });
     return;
   }
-
-  if (!mobileNumber || !mobileNumber.trim()) {
-    res.status(400).json({ error: 'Mobile number is required.' });
+  if (normalizedName.length < 2) {
+    res.status(400).json({ error: 'Name must be at least 2 characters.' });
+    return;
+  }
+  if (normalizedName.length > NAME_MAX_LENGTH) {
+    res.status(400).json({ error: `Name must be at most ${NAME_MAX_LENGTH} characters.` });
     return;
   }
 
-  try {
-    const updatedUser = await updateUserProfile({
-      email: userEmail,
-      fullName: fullName.trim(),
-      mobileNumber: mobileNumber.trim(),
-    });
-
-    if (!updatedUser) {
-      res.status(404).json({ error: 'Account profile was not found.' });
-      return;
-    }
-
-    res.json({
-      fullName: updatedUser.fullName,
-      email: updatedUser.email,
-      mobileNumber: updatedUser.mobileNumber,
-    });
-  } catch (error) {
-    const message = error instanceof Error ? error.message : 'Unable to update profile.';
-    res.status(400).json({ error: message });
+  if (!normalizedMobile) {
+    res.status(400).json({ error: 'Mobile number is required.' });
+    return;
   }
+  if (!MOBILE_RE.test(normalizedMobile)) {
+    res.status(400).json({ error: 'Enter a valid mobile number.' });
+    return;
+  }
+
+  // Input is validated above, so any error here is unexpected: errorHandler logs it and
+  // answers a generic 500 instead of showing database details to the user.
+  const updatedUser = await updateUserProfile({
+    email: userEmail,
+    fullName: normalizedName,
+    mobileNumber: normalizedMobile,
+  });
+
+  if (!updatedUser) {
+    res.status(404).json({ error: 'Account profile was not found.' });
+    return;
+  }
+
+  res.json({
+    fullName: updatedUser.fullName,
+    email: updatedUser.email,
+    mobileNumber: updatedUser.mobileNumber,
+  });
 }));
 
 // GET /api/auth/users — admin-only directory of registered user accounts.
