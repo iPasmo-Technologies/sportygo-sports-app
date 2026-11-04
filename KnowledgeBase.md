@@ -119,7 +119,6 @@ Scripts:
 
 - `backend/src/scripts/migrate.ts`
 - `backend/src/scripts/seed.ts`
-- `backend/src/scripts/resetSeed.ts`
 - `backend/src/scripts/smokeSlotLock.ts`
 
 ## 6. Database Model (Neon PostgreSQL)
@@ -195,7 +194,6 @@ Backend (`backend/.env`):
 - DATABASE_SSL
 - DATABASE_CONNECTION_TIMEOUT_MS
 - DATABASE_POOL_MAX
-- DEV_RESET_TOKEN
 
 Frontend (`frontend/.env.local`):
 
@@ -245,7 +243,6 @@ Operational checks:
 - Call `/api/health` to validate service readiness.
 - Run `db:migrate` after environment changes.
 - Run `db:seed` to repopulate package and slot baseline data.
-- Use `POST /api/dev/reset-seed` (non-production only) to reset and reseed quickly.
 
 Demo identity:
 

@@ -3196,26 +3196,6 @@ export async function seedDatabase(): Promise<void> {
   });
 }
 
-export async function resetDatabaseAndSeed(): Promise<void> {
-  if (!pool) {
-    return;
-  }
-
-  await withDatabaseClient(async (client) => {
-    await client.query('BEGIN');
-    try {
-      await ensureSchema(client);
-      await client.query('TRUNCATE TABLE bookings, slots, users, packages, sports, sport_events, sport_facilities, slot_weekday_configurations, slot_availability_exceptions, slot_block_rules, coaching_session_bookings, coaching_purchases, coaching_sessions, coaching_session_templates, coaching_packages RESTART IDENTITY CASCADE');
-      await client.query('COMMIT');
-    } catch (error) {
-      await client.query('ROLLBACK');
-      throw error;
-    }
-  });
-
-  await seedDatabase();
-}
-
 // ─── System Config Service ────────────────────────────────────
 
 let _configCache: Map<string, string> | null = null;

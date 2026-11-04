@@ -240,11 +240,7 @@ npm run db:migrate
 npm run db:seed
 ```
 
-To reset and repopulate seed data:
-
-```bash
-npm run db:reset:seed
-```
+To start from a clean database, create a new Neon branch, point `DATABASE_URL` at it, and run the migrate and seed commands above.
 
 Run the slot-lock smoke test:
 

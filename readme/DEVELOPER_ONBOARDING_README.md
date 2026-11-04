@@ -436,13 +436,7 @@ What these commands do:
 - `db:seed` inserts sports, facilities, packages, events, and slot configuration data.
 - `db:smoke:slot-lock` checks that two users cannot reserve the same slot at the same time.
 
-To reset seedable local data and repopulate it:
-
-```powershell
-npm.cmd run db:reset:seed
-```
-
-Use reset commands carefully. They may delete local development data, including every user account.
+There is no reset command. To start again with a clean local database, point `DATABASE_URL` at a new database and run `db:migrate` and `db:seed`.
 
 ### Create a local admin account
 

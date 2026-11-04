@@ -6,7 +6,6 @@
     "dev": "nodemon --watch src --ext ts --exec ts-node src/index.ts",
     "db:migrate": "ts-node src/scripts/migrate.ts",
     "db:seed": "ts-node src/scripts/seed.ts",
-    "db:reset:seed": "ts-node src/scripts/resetSeed.ts",
     "db:smoke:slot-lock": "ts-node src/scripts/smokeSlotLock.ts",
     "db:smoke:coaching": "ts-node src/scripts/smokeCoaching.ts",
     "admin:promote": "ts-node src/scripts/promoteAdmin.ts",

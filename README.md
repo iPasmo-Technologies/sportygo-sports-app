@@ -50,7 +50,7 @@ npm run db:smoke:slot-lock
 
 The supported local database setup sequence is `db:migrate` followed by `db:seed`. No separate login test-data script is required.
 
-If you need to wipe and repopulate all seed data, use `npm run db:reset:seed`.
+There is no reset command. To start from an empty database, point `DATABASE_URL` at a new database (for example a new Neon branch) and run `db:migrate` and `db:seed`.
 
 5. Start backend and frontend.
 
@@ -103,7 +103,6 @@ Past or already-started slots remain in the response but are labelled unavailabl
 | `POST /api/bookings` | Generates missing rows, locks every required 30-minute segment, and marks them booked in one database transaction. |
 | Booking reschedule | Generates the destination date's rows before checking and locking the replacement time range. |
 | `npm run db:seed` | Seeds configuration, facilities, 2026 exact-date exceptions, and 2026 Academy recurring rules. It does not generate a rolling range of `slots` rows. |
-| `npm run db:reset:seed` | Deletes slot rows and related seedable data, then restores configuration and seed rules. Slots are generated again on demand. |
 
 ### Slot API details
 
@@ -209,7 +208,6 @@ From `backend/`:
 ```bash
 npm run db:migrate
 npm run db:seed
-npm run db:reset:seed
 ```
 
 Seed now creates:
@@ -263,7 +261,6 @@ sg-booking-app/
       lib/database.ts
       scripts/migrate.ts
       scripts/seed.ts
-      scripts/resetSeed.ts
   docker-compose.yml
   Dockerfile.backend
   Dockerfile.frontend
@@ -302,10 +299,9 @@ Auth persistence:
 
 - login and Google sign-in now upsert the user in database when `DATABASE_URL` is configured
 
-Database reset utility:
+Database reset:
 
-- `npm run db:reset:seed` is the supported reset operation. It truncates seedable tables, including `slots` and `users`, then repopulates schema configuration and seed rules. Slot rows are recreated on demand. **All accounts are deleted, including admins**; create an admin again as described below.
-- `POST /api/dev/reset-seed` is currently disabled in the source and must not be used for environment resets.
+- The application has no reset command or reset endpoint; they were removed so that a database can't be wiped by mistake. For a clean database, create a new one (for example a new Neon branch), point `DATABASE_URL` at it, and run `npm run db:migrate` and `npm run db:seed`.
 
 Creating an admin account:
 
@@ -411,7 +407,7 @@ Local URLs:
 - Backend: `http://localhost:3001`
 - Health: `http://localhost:3001/api/health`
 
-To reset a local database, stop the backend and run `npm run db:reset:seed` from `backend/`. This deletes all accounts; register again and run `npm run admin:promote -- <email>` if you need an admin.
+To start again with a clean local database, point `DATABASE_URL` at a new database and run `npm run db:migrate` and `npm run db:seed` from `backend/`. Register again and run `npm run admin:promote -- <email>` if you need an admin.
 
 ### Production Deployment
 

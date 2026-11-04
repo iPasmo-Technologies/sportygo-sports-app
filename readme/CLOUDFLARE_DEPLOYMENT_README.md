@@ -144,8 +144,7 @@ Expected outputs:
 - Use different secrets for local, staging, and production.
 - Use Stripe live keys only for the production environment.
 - Use a strong random `JWT_SECRET` and a separate `PASSWORD_AT_REST_KEY`.
-- Set `NODE_ENV=production`; this disables the development reset route.
-- Keep `DEV_RESET_TOKEN` unset or set it to an unusable value in production.
+- Set `NODE_ENV=production`.
 - Restrict CORS to the final frontend origin.
 
 ## 6. Deploy the frontend to Cloudflare Pages
@@ -436,7 +435,7 @@ npm run db:migrate
 npm run db:seed
 ```
 
-The seed imports the backend JSON data, including the current pickleball prices. Existing database rows are updated by the seed upsert logic, so run `db:seed` after catalog changes. Do not use `npm run db:reset:seed` against production because it deletes application data.
+The seed imports the backend JSON data, including the current pickleball prices. Existing database rows are updated by the seed upsert logic, so run `db:seed` after catalog changes. There is no reset command, so the seed can't wipe application data.
 
 ### Optional Hyperdrive
 
@@ -490,7 +489,6 @@ Deploy the backend before the frontend if the frontend points to a new API hostn
 ### Security
 
 - A request from an unapproved browser origin is rejected by CORS.
-- `/api/dev/reset-seed` is unavailable in production.
 - Stripe secret, Neon URL, SMTP password, JWT secret, and password-at-rest key are not present in frontend assets or Git history.
 - Pages production variables use live values and test-only UI flags are disabled.
 
