@@ -8,6 +8,7 @@
     "db:seed": "ts-node src/scripts/seed.ts",
     "db:reset:seed": "ts-node src/scripts/resetSeed.ts",
     "db:smoke:slot-lock": "ts-node src/scripts/smokeSlotLock.ts",
+    "db:smoke:coaching": "ts-node src/scripts/smokeCoaching.ts",
     "admin:promote": "ts-node src/scripts/promoteAdmin.ts",
     "email:verify": "ts-node src/scripts/verifyEmail.ts",
     "build": "tsc",
