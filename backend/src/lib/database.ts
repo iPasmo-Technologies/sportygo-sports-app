@@ -11,6 +11,7 @@ import {
   generateWeeklySessionDates,
   singaporeDateOf,
 } from './coaching';
+import { applyDataMigrations } from './dataMigrations';
 
 export type PackageRow = {
   id: string;
@@ -532,15 +533,7 @@ async function seedPackages(client: PoolClient): Promise<void> {
   await client.query(
     `INSERT INTO packages (id, label, price, per_label, sort_order, created_by)
      VALUES ${placeholders.join(', ')}
-     ON CONFLICT (id)
-     DO UPDATE SET
-       label = EXCLUDED.label,
-       price = EXCLUDED.price,
-       per_label = EXCLUDED.per_label,
-       sort_order = EXCLUDED.sort_order,
-       updated_at = NOW(),
-       updated_by = EXCLUDED.created_by,
-       deleted_at = NULL`,
+     ON CONFLICT (id) DO NOTHING`,
     values
   );
 }
@@ -556,16 +549,7 @@ async function seedSports(client: PoolClient): Promise<void> {
   await client.query(
     `INSERT INTO sports (id, label, image_key, banner_key, enabled, sort_order, created_by)
      VALUES ${placeholders.join(', ')}
-     ON CONFLICT (id)
-     DO UPDATE SET
-       label = EXCLUDED.label,
-       image_key = EXCLUDED.image_key,
-       banner_key = EXCLUDED.banner_key,
-       enabled = EXCLUDED.enabled,
-       sort_order = EXCLUDED.sort_order,
-       updated_at = NOW(),
-       updated_by = EXCLUDED.created_by,
-       deleted_at = NULL`,
+     ON CONFLICT (id) DO NOTHING`,
     values
   );
 }
@@ -592,19 +576,7 @@ async function seedSportEvents(client: PoolClient): Promise<void> {
   await client.query(
     `INSERT INTO sport_events (id, sport_id, title_template, description_template, image_key, icon, action_target, enabled, sort_order, created_by)
      VALUES ${placeholders.join(', ')}
-     ON CONFLICT (id)
-     DO UPDATE SET
-       sport_id = EXCLUDED.sport_id,
-       title_template = EXCLUDED.title_template,
-       description_template = EXCLUDED.description_template,
-       image_key = EXCLUDED.image_key,
-       icon = EXCLUDED.icon,
-       action_target = EXCLUDED.action_target,
-       enabled = EXCLUDED.enabled,
-       sort_order = EXCLUDED.sort_order,
-       updated_at = NOW(),
-       updated_by = EXCLUDED.created_by,
-       deleted_at = NULL`,
+     ON CONFLICT (id) DO NOTHING`,
     values
   );
 }
@@ -665,23 +637,7 @@ async function seedSportFacilities(client: PoolClient): Promise<void> {
        created_by
      )
      VALUES ${placeholders.join(', ')}
-     ON CONFLICT (id)
-     DO UPDATE SET
-       sport_id = EXCLUDED.sport_id,
-       facility_code = EXCLUDED.facility_code,
-       title = EXCLUDED.title,
-       price_label = EXCLUDED.price_label,
-       tag_label = EXCLUDED.tag_label,
-        address = EXCLUDED.address,
-        map_location_url = EXCLUDED.map_location_url,
-       image_key = EXCLUDED.image_key,
-       icon = EXCLUDED.icon,
-       action_target = EXCLUDED.action_target,
-        enabled = EXCLUDED.enabled,
-       sort_order = EXCLUDED.sort_order,
-       updated_at = NOW(),
-       updated_by = EXCLUDED.created_by,
-       deleted_at = NULL`,
+     ON CONFLICT (id) DO NOTHING`,
     values
   );
 }
@@ -698,10 +654,7 @@ async function seedSystemConfigs(client: PoolClient): Promise<void> {
   }
 }
 
-// Packages removed from the seed file are disabled, never deleted, because purchases refer to them.
 async function seedCoachingPackages(client: PoolClient): Promise<void> {
-  const ids = DEFAULT_COACHING_PACKAGE_ROWS.map((pkg) => pkg.id);
-
   if (DEFAULT_COACHING_PACKAGE_ROWS.length > 0) {
     const values: unknown[] = [];
     const placeholders = DEFAULT_COACHING_PACKAGE_ROWS.map((pkg, index) => {
@@ -724,33 +677,13 @@ async function seedCoachingPackages(client: PoolClient): Promise<void> {
     await client.query(
       `INSERT INTO coaching_packages (id, sport_id, title, session_count, price, validity_weeks, description, enabled, sort_order, created_by)
        VALUES ${placeholders.join(', ')}
-       ON CONFLICT (id)
-       DO UPDATE SET
-         sport_id = EXCLUDED.sport_id,
-         title = EXCLUDED.title,
-         session_count = EXCLUDED.session_count,
-         price = EXCLUDED.price,
-         validity_weeks = EXCLUDED.validity_weeks,
-         description = EXCLUDED.description,
-         enabled = EXCLUDED.enabled,
-         sort_order = EXCLUDED.sort_order,
-         updated_at = NOW(),
-         updated_by = EXCLUDED.created_by`,
+       ON CONFLICT (id) DO NOTHING`,
       values
     );
   }
-
-  await client.query(
-    `UPDATE coaching_packages
-     SET enabled = FALSE, updated_at = NOW(), updated_by = 'seed'
-     WHERE enabled AND id <> ALL($1::text[])`,
-    [ids]
-  );
 }
 
 async function seedCoachingSessionTemplates(client: PoolClient): Promise<void> {
-  const ids = DEFAULT_COACHING_WEEKLY_SESSION_ROWS.map((template) => template.id);
-
   if (DEFAULT_COACHING_WEEKLY_SESSION_ROWS.length > 0) {
     const values: unknown[] = [];
     const placeholders = DEFAULT_COACHING_WEEKLY_SESSION_ROWS.map((template, index) => {
@@ -773,41 +706,10 @@ async function seedCoachingSessionTemplates(client: PoolClient): Promise<void> {
     await client.query(
       `INSERT INTO coaching_session_templates (id, sport_id, day_of_week, start_time, end_time, title, location, spots, enabled, created_by)
        VALUES ${placeholders.join(', ')}
-       ON CONFLICT (id)
-       DO UPDATE SET
-         sport_id = EXCLUDED.sport_id,
-         day_of_week = EXCLUDED.day_of_week,
-         start_time = EXCLUDED.start_time,
-         end_time = EXCLUDED.end_time,
-         title = EXCLUDED.title,
-         location = EXCLUDED.location,
-         spots = EXCLUDED.spots,
-         enabled = EXCLUDED.enabled,
-         updated_at = NOW(),
-         updated_by = EXCLUDED.created_by`,
+       ON CONFLICT (id) DO NOTHING`,
       values
     );
   }
-
-  await client.query(
-    `UPDATE coaching_session_templates
-     SET enabled = FALSE, updated_at = NOW(), updated_by = 'seed'
-     WHERE enabled AND id <> ALL($1::text[])`,
-    [ids]
-  );
-
-  // A changed spot limit applies to upcoming sessions too. Existing bookings are never removed;
-  // if the new limit is lower than the number booked, only new bookings are blocked.
-  await client.query(
-    `UPDATE coaching_sessions AS session
-     SET spots = template.spots, updated_at = NOW(), updated_by = 'seed'
-     FROM coaching_session_templates AS template
-     WHERE session.template_id = template.id
-       AND session.status = 'scheduled'
-       AND session.session_date >= $1::date
-       AND session.spots <> template.spots`,
-    [singaporeDateOf(new Date())]
-  );
 }
 
 // Creates the next few weeks of sessions from the enabled weekly templates. Safe to run on every
@@ -836,7 +738,7 @@ async function ensureUpcomingCoachingSessions(client: PoolClient, sportId?: Spor
   );
 }
 
-async function seedFacilityWeekdayConfigurations(client: PoolClient, overwriteExisting: boolean): Promise<void> {
+async function seedFacilityWeekdayConfigurations(client: PoolClient): Promise<void> {
   for (const facility of DEFAULT_SPORT_FACILITY_TEMPLATE_ROWS) {
     for (const weekdayName of WEEKDAY_NAMES) {
       const window = DEFAULT_WEEKDAY_SLOT_WINDOWS[weekdayName];
@@ -851,19 +753,14 @@ async function seedFacilityWeekdayConfigurations(client: PoolClient, overwriteEx
            updated_by
          ) VALUES ($1, $2, $3, $4::time, $5::time, 'seed', 'seed')
          ON CONFLICT (sport_id, facility_code, weekday_name)
-         ${overwriteExisting ? `DO UPDATE SET
-           slot_start_time = EXCLUDED.slot_start_time,
-           slot_end_time = EXCLUDED.slot_end_time,
-           updated_at = NOW(),
-           updated_by = 'seed',
-           deleted_at = NULL` : 'DO NOTHING'}`,
+         DO NOTHING`,
         [facility.sportId, facility.code, weekdayName, window.startTime, window.endTime]
       );
     }
   }
 }
 
-async function seedAvailabilityExceptions2026(client: PoolClient, overwriteExisting: boolean): Promise<void> {
+async function seedAvailabilityExceptions2026(client: PoolClient): Promise<void> {
   for (const facility of EXCEPTION_FACILITIES_2026) {
     for (const exceptionDate of availabilityExceptionDates2026()) {
       await client.query(
@@ -871,19 +768,14 @@ async function seedAvailabilityExceptions2026(client: PoolClient, overwriteExist
            sport_id, facility_code, exception_date, slot_start_time, slot_end_time, created_by, updated_by
          ) VALUES ($1, $2, $3::date, '08:00'::time, '19:00'::time, 'seed', 'seed')
          ON CONFLICT (sport_id, facility_code, exception_date)
-         ${overwriteExisting ? `DO UPDATE SET
-           slot_start_time = EXCLUDED.slot_start_time,
-           slot_end_time = EXCLUDED.slot_end_time,
-           updated_at = NOW(),
-           updated_by = 'seed',
-           deleted_at = NULL` : 'DO NOTHING'}`,
+         DO NOTHING`,
         [facility.sportId, facility.facilityCode, exceptionDate]
       );
     }
   }
 }
 
-async function seedRecurringAcademyBlocks2026(client: PoolClient, overwriteExisting: boolean): Promise<void> {
+async function seedRecurringAcademyBlocks2026(client: PoolClient): Promise<void> {
   for (const block of ACADEMY_BLOCKS_2026) {
     await client.query(
       `INSERT INTO slot_block_rules (
@@ -892,11 +784,7 @@ async function seedRecurringAcademyBlocks2026(client: PoolClient, overwriteExist
        ) VALUES ('recurring', $1, $2, '2026-01-01'::date, '2026-12-31'::date, $3, $4::time, $5::time, $6, 'seed', 'seed')
        ON CONFLICT (sport_id, facility_code, valid_from, valid_to, weekday_name, slot_start_time, slot_end_time)
        WHERE rule_type = 'recurring'
-       ${overwriteExisting ? `DO UPDATE SET
-         reason = EXCLUDED.reason,
-         updated_at = NOW(),
-         updated_by = 'seed',
-         deleted_at = NULL` : 'DO NOTHING'}`,
+       DO NOTHING`,
       [block.sportId, block.facilityCode, block.weekdayName, block.startTime, block.endTime, ACADEMY_BLOCK_REASON]
     );
   }
@@ -1035,15 +923,6 @@ async function ensureSchema(client: PoolClient): Promise<void> {
   `);
 
   await client.query(`
-    UPDATE sports
-    SET enabled = FALSE,
-        updated_at = NOW(),
-        updated_by = 'system'
-    WHERE id IN ('futsal', 'sepak-takraw', 'tennis', 'table-tennis')
-      AND enabled IS DISTINCT FROM FALSE
-  `);
-
-  await client.query(`
     ALTER TABLE sports
     ALTER COLUMN banner_key SET NOT NULL
   `);
@@ -1133,22 +1012,17 @@ async function ensureSchema(client: PoolClient): Promise<void> {
     )
   `);
 
-  await client.query(`
-    UPDATE sport_facilities
-    SET tag_label = 'Book Now'
-    WHERE tag_label = 'Per Hour'
-  `);
-
   await client.query('ALTER TABLE sport_facilities ADD COLUMN IF NOT EXISTS address TEXT');
   await client.query('ALTER TABLE sport_facilities ADD COLUMN IF NOT EXISTS map_location_url TEXT');
   await client.query('ALTER TABLE sport_facilities ADD COLUMN IF NOT EXISTS enabled BOOLEAN');
 
+  // Only fills a missing address (very old databases) so the NOT NULL below can apply;
+  // an address someone has set is left alone.
   await client.query(`
     UPDATE sport_facilities
-    SET address = 'SportyGo @ DPS International School, 36 Aroozoo Ave, Singapore 539842',
-        map_location_url = 'https://maps.app.goo.gl/BWiBvM8FU3meALV27'
-    WHERE address IS DISTINCT FROM 'SportyGo @ DPS International School, 36 Aroozoo Ave, Singapore 539842'
-       OR map_location_url IS DISTINCT FROM 'https://maps.app.goo.gl/BWiBvM8FU3meALV27'
+    SET address = COALESCE(address, 'SportyGo @ DPS International School, 36 Aroozoo Ave, Singapore 539842'),
+        map_location_url = COALESCE(map_location_url, 'https://maps.app.goo.gl/BWiBvM8FU3meALV27')
+    WHERE address IS NULL OR map_location_url IS NULL
   `);
 
   await client.query('ALTER TABLE sport_facilities ALTER COLUMN address SET NOT NULL');
@@ -1178,24 +1052,6 @@ async function ensureSchema(client: PoolClient): Promise<void> {
     ALTER TABLE sport_facilities
     ADD CONSTRAINT sport_facilities_image_key_check
     CHECK (image_key IN ('bowling-lane', 'nets-2', 'nets-3', 'nets-4', 'indoor-court', 'outdoor-field', 'pb-indoor-court', 'pb-outdoor-court'))
-  `);
-
-  await client.query(`
-    UPDATE sport_facilities
-    SET image_key = CASE facility_code
-          WHEN 'indoor-court' THEN 'pb-indoor-court'
-          WHEN 'outdoor-field' THEN 'pb-outdoor-court'
-          ELSE image_key
-        END,
-        price_label = CASE facility_code
-          WHEN 'indoor-court' THEN 'S$30'
-          WHEN 'outdoor-field' THEN 'S$25'
-          ELSE price_label
-        END,
-        updated_at = NOW(),
-        updated_by = 'system'
-    WHERE sport_id = 'pickleball'
-      AND facility_code IN ('indoor-court', 'outdoor-field')
   `);
 
   await client.query(`
@@ -1261,7 +1117,7 @@ async function ensureSchema(client: PoolClient): Promise<void> {
     CREATE UNIQUE INDEX IF NOT EXISTS idx_slot_weekday_configurations_facility_day_unique
     ON slot_weekday_configurations (sport_id, facility_code, weekday_name)
   `);
-  await seedFacilityWeekdayConfigurations(client, false);
+  await seedFacilityWeekdayConfigurations(client);
 
   await client.query(`
     CREATE TABLE IF NOT EXISTS slot_availability_exceptions (
@@ -1373,8 +1229,8 @@ async function ensureSchema(client: PoolClient): Promise<void> {
   `);
   await client.query('DROP TABLE IF EXISTS slot_recurring_blocks');
   await client.query('DROP TABLE IF EXISTS admin_slot_blocks');
-  await seedAvailabilityExceptions2026(client, false);
-  await seedRecurringAcademyBlocks2026(client, false);
+  await seedAvailabilityExceptions2026(client);
+  await seedRecurringAcademyBlocks2026(client);
 
   await client.query(`
     CREATE INDEX IF NOT EXISTS idx_slots_slot_date_booked
@@ -1537,10 +1393,11 @@ async function ensureSchema(client: PoolClient): Promise<void> {
   `);
 
   await ensureCoachingSchema(client);
+  await applyDataMigrations(client);
 }
 
-// Coaching tables deliberately have no foreign key to `sports`: seedDatabase() deletes and
-// re-inserts sports, and a cascade would wipe customers' purchases and bookings.
+// Coaching tables deliberately have no foreign key to `sports`: if a sport row were ever deleted,
+// a cascade would wipe customers' purchases and bookings.
 async function ensureCoachingSchema(client: PoolClient): Promise<void> {
   await client.query(`
     CREATE TABLE IF NOT EXISTS coaching_packages (
@@ -3170,20 +3027,18 @@ export async function seedDatabase(): Promise<void> {
   await withDatabaseClient(async (client) => {
     await client.query('BEGIN');
     try {
+      // The database is the source of truth: seeding only adds rows that are missing, so it fills
+      // an empty database and leaves existing data untouched. Change existing data with a
+      // migration in dataMigrations.ts.
       await ensureSchema(client);
-      await client.query('DELETE FROM sport_facilities');
-      await client.query('DELETE FROM sport_events');
-      await client.query('DELETE FROM sports');
       await seedPackages(client);
       await seedSports(client);
       await seedSportEvents(client);
       await seedSportFacilities(client);
       await seedSystemConfigs(client);
-      await seedFacilityWeekdayConfigurations(client, true);
-      await client.query("DELETE FROM slot_availability_exceptions WHERE created_by = 'seed'");
-      await client.query("DELETE FROM slot_block_rules WHERE rule_type = 'recurring' AND created_by = 'seed'");
-      await seedAvailabilityExceptions2026(client, true);
-      await seedRecurringAcademyBlocks2026(client, true);
+      await seedFacilityWeekdayConfigurations(client);
+      await seedAvailabilityExceptions2026(client);
+      await seedRecurringAcademyBlocks2026(client);
       await seedCoachingPackages(client);
       await seedCoachingSessionTemplates(client);
       await ensureUpcomingCoachingSessions(client);

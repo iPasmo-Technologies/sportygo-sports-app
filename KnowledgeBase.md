@@ -242,7 +242,7 @@ Operational checks:
 
 - Call `/api/health` to validate service readiness.
 - Run `db:migrate` after environment changes.
-- Run `db:seed` to repopulate package and slot baseline data.
+- Run `db:seed` to fill missing package and slot baseline data. It never deletes or overwrites existing rows; change existing data with a migration in `backend/src/lib/dataMigrations.ts`.
 
 Demo identity:
 

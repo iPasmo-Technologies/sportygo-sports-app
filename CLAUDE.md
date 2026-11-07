@@ -35,6 +35,7 @@ Think about the long-term health of the system, not only the quick fix.
 - Before editing a function, check where it is used.
 - Add or update a test that proves the fix works. For a bug fix, write the failing test first.
 - Database changes go through migrations. Never edit an old migration; add a new one.
+- The database is the source of truth for catalog data: `db:seed` only fills missing rows. Change existing data with a one-time migration in `backend/src/lib/dataMigrations.ts` (and update the seed JSON).
 - Say clearly when a change is not backward compatible.
 
 ## Security (apply to every change, even when I don't mention it)

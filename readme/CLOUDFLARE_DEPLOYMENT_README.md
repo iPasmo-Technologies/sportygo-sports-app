@@ -435,7 +435,7 @@ npm run db:migrate
 npm run db:seed
 ```
 
-The seed imports the backend JSON data, including the current pickleball prices. Existing database rows are updated by the seed upsert logic, so run `db:seed` after catalog changes. There is no reset command, so the seed can't wipe application data.
+The database is the source of truth. The seed only inserts rows that are missing (it fills a new database from the backend JSON files) and never deletes or overwrites existing data, so it is safe to re-run. To change data in an existing database (prices, cards, packages, spots), add a one-time migration in `backend/src/lib/dataMigrations.ts`; it runs once, automatically, the next time the backend starts or `db:migrate` runs.
 
 ### Optional Hyperdrive
 
