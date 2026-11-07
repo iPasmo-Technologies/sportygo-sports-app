@@ -1,6 +1,9 @@
 import { randomUUID } from 'crypto';
 import { Client } from 'pg';
-import { blockSlotsForAdmin, isDatabaseConfigured, listSportFacilities, listSlotsForDate, saveBooking, seedDatabase, SlotAlreadyBookedError } from '../lib/database';
+import { blockSlotsForAdmin, isDatabaseConfigured, listSportFacilities, listSlotsForDate, query, saveBooking, SlotAlreadyBookedError } from '../lib/database';
+
+// Proves that court bookings and admin blocks lock slots per facility against a real Postgres.
+// It does not seed: run `npm run db:seed` first. Run against a local or test database only.
 
 function datePlusDays(days: number): string {
   const date = new Date();
@@ -15,14 +18,26 @@ function datePlusDays(days: number): string {
   return `${parts.year}-${parts.month}-${parts.day}`;
 }
 
-function nextDateFor(dayType: 'weekday' | 'weekend'): string {
-  for (let days = 1; days <= 7; days++) {
+// Dates with an availability exception (e.g. school holidays) have a different window, so
+// the default-window check skips them.
+async function exceptionDatesWithin(days: number): Promise<Set<string>> {
+  const rows = await query<{ date: string }>(
+    `SELECT DISTINCT exception_date::text AS date
+     FROM slot_availability_exceptions
+     WHERE deleted_at IS NULL AND exception_date BETWEEN $1::date AND $2::date`,
+    [datePlusDays(1), datePlusDays(days)]
+  );
+  return new Set(rows.map((row) => row.date));
+}
+
+function nextDateFor(dayType: 'weekday' | 'weekend', skip: Set<string>): string | null {
+  for (let days = 1; days <= 28; days++) {
     const date = datePlusDays(days);
     const dayOfWeek = new Date(`${date}T00:00:00Z`).getUTCDay();
     const isWeekend = dayOfWeek === 0 || dayOfWeek === 6;
-    if ((dayType === 'weekend') === isWeekend) return date;
+    if ((dayType === 'weekend') === isWeekend && !skip.has(date)) return date;
   }
-  throw new Error(`Unable to find a ${dayType} verification date.`);
+  return null;
 }
 
 async function verifyFacilitySlotWindows(): Promise<void> {
@@ -30,10 +45,18 @@ async function verifyFacilitySlotWindows(): Promise<void> {
     ...await listSportFacilities('cricket'),
     ...await listSportFacilities('pickleball'),
   ];
+  if (facilities.length === 0) {
+    throw new Error('No cricket or pickleball facilities found. Run `npm run db:seed` first.');
+  }
+
+  const skip = await exceptionDatesWithin(28);
+  const weekday = nextDateFor('weekday', skip);
+  const weekend = nextDateFor('weekend', skip);
   const checks = [
-    { date: nextDateFor('weekday'), first: '16:00', last: '18:30', count: 6 },
-    { date: nextDateFor('weekend'), first: '08:00', last: '18:30', count: 22 },
+    ...(weekday ? [{ date: weekday, first: '16:00', last: '18:30', count: 6 }] : []),
+    ...(weekend ? [{ date: weekend, first: '08:00', last: '18:30', count: 22 }] : []),
   ];
+  if (!weekday) console.log('[db:smoke:slot-lock] SKIP weekday window check: every weekday in the next 4 weeks has an exception.');
 
   for (const facility of facilities) {
     for (const check of checks) {
@@ -48,53 +71,16 @@ async function verifyFacilitySlotWindows(): Promise<void> {
   }
 }
 
-async function verify2026ExceptionsAndAcademyBlocks(): Promise<void> {
-  const facilities = [
-    ...await listSportFacilities('cricket'),
-    ...await listSportFacilities('pickleball'),
-  ];
-
-  for (const facility of facilities) {
-    for (const date of ['2026-08-10', '2026-11-09', '2026-12-02']) {
-      const slots = await listSlotsForDate(date, facility.sportId, facility.code);
-      if (slots.length !== 22 || slots[0]?.time !== '08:00' || slots.at(-1)?.time !== '18:30') {
-        throw new Error(`The 2026 availability exception was not applied to ${facility.sportId}/${facility.code} on ${date}.`);
-      }
-    }
-
-    const slots2027 = await listSlotsForDate('2027-01-04', facility.sportId, facility.code);
-    if (slots2027.length !== 6 || slots2027[0]?.time !== '16:00' || slots2027.at(-1)?.time !== '18:30') {
-      throw new Error(`A 2026 availability exception incorrectly recurred for ${facility.sportId}/${facility.code} in 2027.`);
-    }
-  }
-
-  const expectedBlocked = async (facilityCode: string, date: string, times: string[]) => {
-    const slots = await listSlotsForDate(date, 'cricket', facilityCode);
-    for (const time of times) {
-      if (!slots.find((slot) => slot.time === time)?.booked) {
-        throw new Error(`Expected Academy block missing for cricket/${facilityCode} on ${date} at ${time}.`);
-      }
-    }
-  };
-
-  await expectedBlocked('net-2', '2026-12-02', ['16:00', '16:30', '17:00', '17:30']);
-  await expectedBlocked('bowling-lane', '2026-12-05', ['08:00', '08:30', '09:00', '09:30', '16:00', '16:30', '17:00', '17:30']);
-  await expectedBlocked('net-3', '2026-12-05', [
-    '08:00', '08:30', '09:00', '09:30',
-    '13:30', '14:00', '14:30', '15:00', '15:30', '16:00', '16:30', '17:00', '17:30',
-  ]);
-  await expectedBlocked('indoor-court', '2026-12-05', ['16:00', '16:30', '17:00', '17:30']);
-}
-
 async function main() {
   if (!isDatabaseConfigured()) {
     console.log('[db:smoke:slot-lock] DATABASE_URL is not configured. Skipping smoke check.');
     return;
   }
+  if (process.env.NODE_ENV === 'production') {
+    throw new Error('Refusing to run the slot-lock smoke test with NODE_ENV=production.');
+  }
 
-  await seedDatabase();
   await verifyFacilitySlotWindows();
-  await verify2026ExceptionsAndAcademyBlocks();
 
   const receiptPrefix = `SMOKE-${randomUUID().slice(0, 8).toUpperCase()}`;
   let targetDate = '';

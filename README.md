@@ -46,7 +46,10 @@ STRIPE_CURRENCY=sgd
 npm run db:migrate
 npm run db:seed
 npm run db:smoke:slot-lock
+npm run db:smoke:coaching
 ```
+
+The smoke checks need a seeded local or test database and refuse to run with `NODE_ENV=production`.
 
 The supported local database setup sequence is `db:migrate` followed by `db:seed`. No separate login test-data script is required.
 
@@ -183,7 +186,7 @@ Use this annual checklist for year-specific availability and block-outs:
 3. Create recurring Academy or operational block rules with `validFrom` and `validTo` covering the new year through `POST /api/slots/blocks/recurring`, or update the code seed data if those rules must be installed automatically in every environment. The supplied Academy seed rules run only from `2026-01-01` through `2026-12-31`.
 4. Add planned closures or special events with `POST /api/slots/block`. One request can cover up to 31 dates for one facility and time range.
 5. Verify representative weekday, weekend, exception, and blocked dates with `GET /api/slots`, confirming both the generated time range and the `booked` status.
-6. Run `cd backend && npm run db:smoke:slot-lock` against the configured database. Update its year-specific 2026 assertions before treating it as a 2027 regression check.
+6. Run `cd backend && npm run db:smoke:slot-lock` against a seeded test copy of the database. It skips dates with availability exceptions, so it keeps working across years.
 
 ## Database Configuration (Easy Steps)
 
@@ -832,7 +835,7 @@ npm run lint         # ESLint (frontend only)
 - Run tests whose name matches some text: `npx vitest run -t "parseRate"`.
 - Backend test files are excluded from `npm run build`, so they never ship in `dist/`.
 - Pricing tests use the same expected totals in `backend/src/lib/bookingPricing.test.ts` and `frontend/src/lib/pricing.test.ts`. If you change a fee or rounding rule, update both, or one side will fail.
-- `npm run db:smoke:slot-lock` (backend) is a separate smoke check that needs a real database; it is not part of `npm test`.
+- `npm run db:smoke:slot-lock` and `npm run db:smoke:coaching` (backend) are separate smoke checks that need a real, seeded test database; they are not part of `npm test`.
 
 If tests fail with `Worker exited unexpectedly` or `JavaScript heap out of memory`, your machine is low on memory for parallel test workers. Run them one at a time:
 

@@ -428,6 +428,7 @@ The application uses PostgreSQL. The team commonly uses Neon PostgreSQL, but ano
 npm.cmd run db:migrate
 npm.cmd run db:seed
 npm.cmd run db:smoke:slot-lock
+npm.cmd run db:smoke:coaching
 ```
 
 What these commands do:
@@ -435,6 +436,8 @@ What these commands do:
 - `db:migrate` creates or updates the database schema.
 - `db:seed` inserts sports, facilities, packages, events, and slot configuration data.
 - `db:smoke:slot-lock` checks that two users cannot reserve the same slot at the same time.
+- `db:smoke:coaching` checks that coaching sessions can't be overbooked and a session can't be used twice.
+- Both smoke checks need a seeded local or test database, clean up after themselves, and refuse to run with `NODE_ENV=production`.
 
 There is no reset command. To start again with a clean local database, point `DATABASE_URL` at a new database and run `db:migrate` and `db:seed`.
 
@@ -675,7 +678,7 @@ backend/
   src/lib/email.ts            Nodemailer email messages
   src/lib/stripe.ts           Stripe server integration
   src/middleware/             Authentication middleware
-  src/scripts/                Migration, seed, reset, and smoke scripts
+  src/scripts/                Migration, seed, and smoke scripts
 ```
 
 ## 16. Backend API Quick Reference

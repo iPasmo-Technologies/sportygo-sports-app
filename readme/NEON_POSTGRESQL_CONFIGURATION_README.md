@@ -242,10 +242,11 @@ npm run db:seed
 
 To start from a clean database, create a new Neon branch, point `DATABASE_URL` at it, and run the migrate and seed commands above.
 
-Run the slot-lock smoke test:
+Run the smoke tests (on a development or test branch, never production):
 
 ```bash
 npm run db:smoke:slot-lock
+npm run db:smoke:coaching
 ```
 
 Start the backend:
