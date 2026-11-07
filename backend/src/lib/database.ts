@@ -364,7 +364,8 @@ const pool = USE_DATABASE
       connectionTimeoutMillis: Number.isFinite(DATABASE_CONNECTION_TIMEOUT_MS) ? DATABASE_CONNECTION_TIMEOUT_MS : 5000,
       idleTimeoutMillis: 30000,
       options: '-c timezone=Asia/Singapore',
-      ssl: DATABASE_SSL ? { rejectUnauthorized: false } : undefined,
+      // Always check the database's certificate, so nobody on the network path can pose as it.
+      ssl: DATABASE_SSL ? { rejectUnauthorized: true } : undefined,
     })
   : null;
 

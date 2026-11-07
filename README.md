@@ -32,7 +32,7 @@ copy .env.example .env
 ```env
 JWT_SECRET=your-long-random-secret
 GOOGLE_CLIENT_ID=your-google-client-id.apps.googleusercontent.com
-DATABASE_URL=postgresql://<user>:<password>@<neon-host>/<db>?uselibpqcompat=true&sslmode=require
+DATABASE_URL=postgresql://<user>:<password>@<neon-host>/<db>?sslmode=verify-full
 DATABASE_SSL=true
 DATABASE_CONNECTION_TIMEOUT_MS=5000
 DATABASE_POOL_MAX=10
@@ -372,7 +372,7 @@ NODE_ENV=development
 PORT=3001
 FRONTEND_URL=http://localhost:5173
 JWT_SECRET=your-local-dev-secret
-DATABASE_URL=postgresql://<user>:<password>@<neon-host>/<db>?uselibpqcompat=true&sslmode=require
+DATABASE_URL=postgresql://<user>:<password>@<neon-host>/<db>?sslmode=verify-full
 DATABASE_SSL=true
 DATABASE_CONNECTION_TIMEOUT_MS=5000
 DATABASE_POOL_MAX=10
@@ -429,7 +429,7 @@ NODE_ENV=production
 PORT=3001
 FRONTEND_URL=https://your-frontend-domain.com
 JWT_SECRET=<strong-random-secret>
-DATABASE_URL=postgresql://<user>:<password>@<neon-host>/<db>?uselibpqcompat=true&sslmode=require
+DATABASE_URL=postgresql://<user>:<password>@<neon-host>/<db>?sslmode=verify-full
 DATABASE_SSL=true
 DATABASE_CONNECTION_TIMEOUT_MS=5000
 DATABASE_POOL_MAX=20
@@ -560,7 +560,7 @@ GitHub-connected deployment from `main` (preferred):
 - `FRONTEND_URL=https://your-frontend-domain.com`
 - `JWT_SECRET=<strong-random-secret>`
 - `GOOGLE_CLIENT_ID=your-google-client-id.apps.googleusercontent.com`
-- `DATABASE_URL=postgresql://<user>:<password>@<neon-host>/<db>?uselibpqcompat=true&sslmode=require`
+- `DATABASE_URL=postgresql://<user>:<password>@<neon-host>/<db>?sslmode=verify-full`
 - `DATABASE_SSL=true`
 - `DATABASE_CONNECTION_TIMEOUT_MS=5000`
 - `DATABASE_POOL_MAX=20`
@@ -716,7 +716,7 @@ Result:
 - `PORT=3001`
 - `FRONTEND_URL=https://your-frontend-domain.com`
 - `JWT_SECRET=<strong-random-secret>`
-- `DATABASE_URL=postgresql://<user>:<password>@<neon-host>/<db>?uselibpqcompat=true&sslmode=require`
+- `DATABASE_URL=postgresql://<user>:<password>@<neon-host>/<db>?sslmode=verify-full`
 - `DATABASE_SSL=true`
 - `DATABASE_CONNECTION_TIMEOUT_MS=5000`
 - `DATABASE_POOL_MAX=20`

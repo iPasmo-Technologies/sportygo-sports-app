@@ -171,7 +171,7 @@ async function main() {
     if (databaseUrl) {
       const client = new Client({
         connectionString: databaseUrl,
-        ssl: (process.env.DATABASE_SSL ?? 'true').toLowerCase() !== 'false' ? { rejectUnauthorized: false } : undefined,
+        ssl: (process.env.DATABASE_SSL ?? 'true').toLowerCase() !== 'false' ? { rejectUnauthorized: true } : undefined,
       });
       await client.connect();
       await client.query('DELETE FROM bookings WHERE receipt_id LIKE $1', [`${receiptPrefix}-%`]);

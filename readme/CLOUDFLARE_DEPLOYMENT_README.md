@@ -420,7 +420,7 @@ Updating `DATABASE_URL` does not migrate or seed the new database. Before switch
 1. Sign in to Neon and create or select the production project.
 2. Create a production branch/database if your Neon plan uses branches.
 3. Copy the pooled or direct production connection string supplied by Neon.
-4. Keep SSL enabled. The existing backend sets `ssl: { rejectUnauthorized: false }` when `DATABASE_SSL=true`.
+4. Keep SSL enabled (`DATABASE_SSL=true`). The backend then always verifies the database's TLS certificate. In the connection string use `sslmode=verify-full` (not `sslmode=require`, which makes the `pg` driver print a security warning and will mean a weaker check in `pg` v9), for example `...neon.tech/neondb?sslmode=verify-full&channel_binding=require`.
 5. Add the connection string as the backend `DATABASE_URL` secret.
 6. Allow the backend to connect and verify `GET /api/health`.
 

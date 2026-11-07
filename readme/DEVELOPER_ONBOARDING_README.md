@@ -314,7 +314,7 @@ FRONTEND_URLS=http://localhost:5173
 JWT_SECRET=use-a-long-random-local-secret
 VITE_AUTH_PAYLOAD_KEY=use-the-same-key-as-frontend
 PASSWORD_AT_REST_KEY=use-a-separate-local-secret
-DATABASE_URL=postgresql://username:password@host/database?sslmode=require
+DATABASE_URL=postgresql://username:password@host/database?sslmode=verify-full
 DATABASE_SSL=true
 DATABASE_CONNECTION_TIMEOUT_MS=5000
 DATABASE_POOL_MAX=10

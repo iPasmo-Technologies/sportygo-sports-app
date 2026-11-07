@@ -166,13 +166,13 @@ Recommended production option:
 Expected format:
 
 ```text
-postgresql://sportygo_app_user:<password>@<host>/<database>?sslmode=require
+postgresql://sportygo_app_user:<password>@<host>/<database>?sslmode=verify-full
 ```
 
 For this app:
 
 ```text
-postgresql://sportygo_app_user:<password>@<neon-host>/sportygo-app-db?sslmode=require
+postgresql://sportygo_app_user:<password>@<neon-host>/sportygo-app-db?sslmode=verify-full
 ```
 
 If Neon provides both pooled and direct URLs:
@@ -184,16 +184,16 @@ If Neon provides both pooled and direct URLs:
 Example local `.env` value:
 
 ```env
-DATABASE_URL=postgresql://sportygo_app_user:replace-with-password@ep-example-123456.ap-southeast-1.aws.neon.tech/sportygo-app-db?sslmode=require
+DATABASE_URL=postgresql://sportygo_app_user:replace-with-password@ep-example-123456.ap-southeast-1.aws.neon.tech/sportygo-app-db?sslmode=verify-full
 DATABASE_SSL=true
 DATABASE_CONNECTION_TIMEOUT_MS=5000
 DATABASE_POOL_MAX=10
 ```
 
-Some existing project examples may include `uselibpqcompat=true`. If Neon provides that parameter in the copied connection string, keep it:
+Use `sslmode=verify-full`, even though Neon's copied connection string says `sslmode=require`. With `verify-full` the connection is encrypted and the database's certificate is checked. `sslmode=require` makes the `pg` driver print a security warning and will mean a weaker check in `pg` v9, and `uselibpqcompat=true&sslmode=require` turns the certificate check off, so never use that combination. Neon's `channel_binding=require` can stay:
 
 ```env
-DATABASE_URL=postgresql://sportygo_app_user:replace-with-password@ep-example-123456.ap-southeast-1.aws.neon.tech/sportygo-app-db?sslmode=require&uselibpqcompat=true
+DATABASE_URL=postgresql://sportygo_app_user:replace-with-password@ep-example-123456.ap-southeast-1.aws.neon.tech/sportygo-app-db?sslmode=verify-full&channel_binding=require
 ```
 
 ---
@@ -205,7 +205,7 @@ Update `backend/.env` locally and the deployed backend environment variables.
 Minimum required database values:
 
 ```env
-DATABASE_URL=postgresql://sportygo_app_user:<password>@<neon-host>/sportygo-app-db?sslmode=require
+DATABASE_URL=postgresql://sportygo_app_user:<password>@<neon-host>/sportygo-app-db?sslmode=verify-full
 DATABASE_SSL=true
 DATABASE_CONNECTION_TIMEOUT_MS=5000
 DATABASE_POOL_MAX=10
@@ -294,7 +294,7 @@ After changing production environment variables, redeploy or restart the backend
 Before using the database in production, confirm:
 
 - The database name is exactly `sportygo-app-db`.
-- The backend uses `DATABASE_URL` with `sslmode=require`.
+- The backend uses `DATABASE_URL` with `sslmode=verify-full`.
 - `DATABASE_SSL=true` is set.
 - Production secrets are not committed to Git.
 - The application uses the app role/user, not a personal Neon account password.
@@ -462,7 +462,7 @@ DATABASE_SSL=true
 Also confirm the URL includes:
 
 ```text
-sslmode=require
+sslmode=verify-full
 ```
 
 ### Database name with hyphen fails in SQL
