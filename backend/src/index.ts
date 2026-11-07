@@ -10,6 +10,7 @@ import paymentsRoutes from './routes/payments';
 import packagesRoutes from './routes/packages';
 import sportsRoutes   from './routes/sports';
 import configRoutes   from './routes/config';
+import coachingRoutes from './routes/coaching';
 import { isDatabaseConfigured } from './lib/database';
 import { errorHandler } from './middleware/errorHandler';
 import { describeSmtpSettings, verifySmtpConnection } from './lib/email';
@@ -73,6 +74,7 @@ app.use('/api/payments', paymentsRoutes);
 app.use('/api/packages', packagesRoutes);
 app.use('/api/sports',   sportsRoutes);
 app.use('/api/config',   configRoutes);
+app.use('/api/coaching', coachingRoutes);
 
 // ── Health check ──────────────────────────────────────────────
 app.get('/api/health', (_req, res) => {

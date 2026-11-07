@@ -34,10 +34,11 @@ vi.mock('../lib/email', () => ({
   sendBookingConfirmationEmail: vi.fn(),
   sendBookingUpdateEmail: vi.fn(),
 }));
-vi.mock('../lib/stripe', () => ({
+// The payment checks (verifyStripeIntent) are the real ones; only the Stripe connection is faked.
+vi.mock('../lib/stripe', async (importOriginal) => ({
+  ...await importOriginal<typeof import('../lib/stripe')>(),
   isStripeConfigured: vi.fn(),
   getStripeClient: vi.fn(),
-  toMinorCurrencyUnits: (amount: number) => Math.round(amount * 100),
 }));
 
 import { PaymentAlreadyUsedError, saveBooking } from '../lib/database';

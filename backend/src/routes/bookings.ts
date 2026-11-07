@@ -2,7 +2,7 @@ import { Router, type NextFunction, type Request, type Response } from 'express'
 import { asyncHandler } from '../middleware/asyncHandler';
 import { authMiddleware, requireAdminRole, type AuthenticatedRequest } from '../middleware/authMiddleware';
 import { BookingNotManageableError, cancelBooking, FacilityUnavailableError, listAllBookingsForAdmin, listBookingsByCustomer, PaymentAlreadyUsedError, rescheduleBooking, saveBooking, SlotAlreadyBookedError, SlotConfigurationMissingError, type SportFacilityRow } from '../lib/database';
-import { getStripeClient, isStripeConfigured, toMinorCurrencyUnits } from '../lib/stripe';
+import { getStripeClient, isStripeConfigured, verifyStripeIntent, type StripeIntentFailure } from '../lib/stripe';
 import { calculateBookingPricing } from '../lib/bookingPricing';
 import { type SportRow } from '../lib/database';
 import { sendBookingConfirmationEmail, sendBookingUpdateEmail } from '../lib/email';
@@ -57,6 +57,13 @@ function requireMockPaymentEnabled(_req: Request, res: Response, next: NextFunct
 
 // Only card payments through Stripe are integrated. GPAY/PAYNOW/GRABPAY are "Coming soon" in the app.
 const SUPPORTED_PAY_METHODS = new Set(['STRIPE']);
+
+const STRIPE_FAILURE_RESPONSES: Record<StripeIntentFailure, [number, string]> = {
+  'not-succeeded': [402, 'Stripe payment is not completed. Please complete card payment first.'],
+  'amount-mismatch': [400, 'Stripe paid amount does not match booking total.'],
+  'wrong-customer': [403, 'Stripe payment does not belong to the authenticated customer.'],
+  'wrong-purpose': [403, 'Stripe payment does not belong to this booking.'],
+};
 
 // GET /api/bookings  (requires Bearer token)
 router.get('/', authMiddleware, asyncHandler(async (req: AuthenticatedRequest, res) => {
@@ -345,34 +352,16 @@ router.post('/', authMiddleware, asyncHandler(async (req: AuthenticatedRequest, 
         expand: ['payment_method'],
       });
 
-      if (intent.status !== 'succeeded') {
-        res.status(402).json({
-          error: 'Stripe payment is not completed. Please complete card payment first.',
-        });
-        return;
-      }
-
-      const expectedAmount = toMinorCurrencyUnits(pricing.grandTotal);
-      const paidAmount = intent.amount_received || intent.amount || 0;
-      if (paidAmount !== expectedAmount) {
-        res.status(400).json({
-          error: 'Stripe paid amount does not match booking total.',
-        });
-        return;
-      }
-
-      const intentEmail = intent.receipt_email?.trim().toLowerCase() || intent.metadata.customerEmail?.trim().toLowerCase() || '';
-      if (intentEmail && intentEmail !== resolvedCustomerEmail) {
-        res.status(403).json({
-          error: 'Stripe payment does not belong to the authenticated customer.',
-        });
-        return;
-      }
-
       // Checkout creates each payment with the booking's receipt id, and receipt ids are unique,
       // so a payment can only ever pay for the one booking it was made for.
-      if ((intent.metadata.receiptId ?? '').trim() !== receiptId.trim()) {
-        res.status(403).json({ error: 'Stripe payment does not belong to this booking.' });
+      const failure = verifyStripeIntent(intent, {
+        amountMajor: pricing.grandTotal,
+        customerEmail: resolvedCustomerEmail,
+        metadata: { receiptId },
+      });
+      if (failure) {
+        const [status, error] = STRIPE_FAILURE_RESPONSES[failure];
+        res.status(status).json({ error });
         return;
       }
 

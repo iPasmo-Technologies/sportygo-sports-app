@@ -71,8 +71,16 @@ export async function calculateBookingPricing(input: BookingPricingInput): Promi
     subtotalCents = toCents(pkg.price);
   }
 
+  return withFees(subtotalCents, input.payMethod === 'STRIPE');
+}
+
+// Coaching packages are card-only and carry the same platform and card fees as other bookings.
+export function calculateCoachingPackagePricing(packagePrice: number): BookingPricing {
+  return withFees(toCents(packagePrice), true);
+}
+
+function withFees(subtotalCents: number, isCard: boolean): BookingPricing {
   const chargeableCents = subtotalCents + toCents(PLATFORM_FEE);
-  const isCard = input.payMethod === 'STRIPE';
   const stripeFee = isCard ? stripeFeeCents(chargeableCents) : 0;
 
   return {

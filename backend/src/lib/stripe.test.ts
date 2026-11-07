@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { toMinorCurrencyUnits } from './stripe';
+import { toMinorCurrencyUnits, verifyStripeIntent } from './stripe';
 
 describe('toMinorCurrencyUnits', () => {
   it.each([
@@ -52,5 +52,39 @@ describe('Stripe configuration', () => {
     expect(stripe.isStripeConfigured()).toBe(true);
     const first = stripe.getStripeClient();
     expect(stripe.getStripeClient()).toBe(first);
+  });
+});
+
+describe('verifyStripeIntent', () => {
+  const EXPECTED = { amountMajor: 92.63, customerEmail: 'user@example.com', metadata: { receiptId: 'SGO-C1A2B3C4' } };
+
+  function intent(overrides: Record<string, unknown> = {}) {
+    return {
+      status: 'succeeded',
+      amount: 9263,
+      amount_received: 9263,
+      receipt_email: 'user@example.com',
+      metadata: { receiptId: 'SGO-C1A2B3C4' },
+      ...overrides,
+    } as unknown as Parameters<typeof verifyStripeIntent>[0];
+  }
+
+  it('accepts a completed payment that matches', () => {
+    expect(verifyStripeIntent(intent(), EXPECTED)).toBeNull();
+  });
+
+  it('compares emails ignoring case and spaces', () => {
+    expect(verifyStripeIntent(intent({ receipt_email: ' USER@example.com ' }), EXPECTED)).toBeNull();
+  });
+
+  it.each([
+    ['an unfinished payment', { status: 'requires_payment_method' }, 'not-succeeded'],
+    ['a different amount', { amount: 100, amount_received: 100 }, 'amount-mismatch'],
+    ['another customer', { receipt_email: 'other@example.com' }, 'wrong-customer'],
+    ['another customer (metadata only)', { receipt_email: null, metadata: { receiptId: 'SGO-C1A2B3C4', customerEmail: 'other@example.com' } }, 'wrong-customer'],
+    ['a different receipt', { metadata: { receiptId: 'SGO-COTHER' } }, 'wrong-purpose'],
+    ['no metadata', { metadata: {} }, 'wrong-purpose'],
+  ])('rejects %s', (_label, overrides, reason) => {
+    expect(verifyStripeIntent(intent(overrides), EXPECTED)).toBe(reason);
   });
 });

@@ -9,6 +9,18 @@ export const COACHING_REFUND_EXTENSION_DAYS = 7;
 const SINGAPORE_TIME_ZONE = 'Asia/Singapore';
 const SINGAPORE_UTC_OFFSET = '+08:00';
 
+// Signup fills these in when the user has not given a name or mobile (see the users table defaults).
+export const PLACEHOLDER_FULL_NAME = 'User';
+export const PLACEHOLDER_MOBILE_NUMBER = '+6500000000';
+
+// The coach needs a real name and a number to reach the player, so a purchase requires both.
+export function hasContactDetailsForCoaching(user: { fullName?: string | null; mobileNumber?: string | null }): boolean {
+  const fullName = user.fullName?.trim() ?? '';
+  const mobileNumber = user.mobileNumber?.trim() ?? '';
+  return fullName.length > 0 && fullName !== PLACEHOLDER_FULL_NAME
+    && mobileNumber.length > 0 && mobileNumber !== PLACEHOLDER_MOBILE_NUMBER;
+}
+
 export type WeeklySessionTemplate = {
   id: string;
   dayOfWeek: number;

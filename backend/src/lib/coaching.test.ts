@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import {
   addDaysToDate,
+  hasContactDetailsForCoaching,
   computePackageExpiry,
   generateWeeklySessionDates,
   sessionStartsAt,
@@ -67,5 +68,21 @@ describe('generateWeeklySessionDates', () => {
 
   it('returns nothing when there are no templates', () => {
     expect(generateWeeklySessionDates([], '2026-11-01', 4)).toEqual([]);
+  });
+});
+
+describe('hasContactDetailsForCoaching', () => {
+  it('accepts a real name and mobile number', () => {
+    expect(hasContactDetailsForCoaching({ fullName: 'Tan Wei Ming', mobileNumber: '+6591234567' })).toBe(true);
+  });
+
+  it.each([
+    ['the signup placeholder name', { fullName: 'User', mobileNumber: '+6591234567' }],
+    ['the signup placeholder mobile', { fullName: 'Tan Wei Ming', mobileNumber: '+6500000000' }],
+    ['a blank name', { fullName: '   ', mobileNumber: '+6591234567' }],
+    ['a missing mobile', { fullName: 'Tan Wei Ming', mobileNumber: null }],
+    ['a placeholder with spaces around it', { fullName: ' User ', mobileNumber: '+6591234567' }],
+  ])('rejects %s', (_label, user) => {
+    expect(hasContactDetailsForCoaching(user)).toBe(false);
   });
 });

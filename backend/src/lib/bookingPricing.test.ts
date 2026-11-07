@@ -9,7 +9,7 @@ vi.mock('./database', () => ({
 }));
 
 import { listPackages, listSportFacilities } from './database';
-import { calculateBookingPricing } from './bookingPricing';
+import { calculateBookingPricing, calculateCoachingPackagePricing } from './bookingPricing';
 
 const PACKAGES: PackageRow[] = [
   { id: 'single', label: 'Single Session', price: 120, per: 'SGD 120.00 / session' },
@@ -217,5 +217,21 @@ describe('calculateBookingPricing - package bookings', () => {
   it.each([['unknown', 'nope'], ['null', null]])('rejects a %s package', async (_label, packageOption) => {
     await expect(calculateBookingPricing({ bookingType: 'coaching', durationMins: 60, packageOption }))
       .rejects.toThrow('Selected package could not be found.');
+  });
+});
+
+describe('calculateCoachingPackagePricing', () => {
+  it.each([
+    // 88 + 1.50 platform = 89.50; card fee 3.5% = 3.1325 -> 3.13
+    [88, { priceSubtotal: 88, tax: 3.13, platformFee: 1.5, grandTotal: 92.63 }],
+    // 450 + 1.50 = 451.50; card fee 15.8025 -> 15.80
+    [450, { priceSubtotal: 450, tax: 15.8, platformFee: 1.5, grandTotal: 467.3 }],
+  ])('prices a S$%d package with platform and card fees', (price, expected) => {
+    expect(calculateCoachingPackagePricing(price)).toEqual(expected);
+  });
+
+  it('matches a card-paid package booking for the same price', async () => {
+    const booking = await calculateBookingPricing({ bookingType: 'coaching', durationMins: 60, packageOption: 'pack3', payMethod: 'STRIPE' });
+    expect(calculateCoachingPackagePricing(booking.priceSubtotal)).toEqual(booking);
   });
 });
