@@ -1,6 +1,7 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import {
   announce,
+  copyText,
   formatDateLong,
   formatDateShort,
   formatSgtTime,
@@ -158,5 +159,44 @@ describe('announce', () => {
 
   it('does nothing when the live region is missing', () => {
     expect(() => announce('No region')).not.toThrow();
+  });
+});
+
+describe('copyText', () => {
+  afterEach(() => {
+    vi.unstubAllGlobals();
+    Reflect.deleteProperty(document, 'execCommand');
+  });
+
+  function stubClipboard(writeText: ((text: string) => Promise<void>) | null) {
+    vi.stubGlobal('navigator', { ...navigator, clipboard: writeText ? { writeText } : undefined });
+  }
+
+  it('uses the clipboard API when the page is secure', async () => {
+    const writeText = vi.fn().mockResolvedValue(undefined);
+    stubClipboard(writeText);
+    await expect(copyText('SGO-26ABC123')).resolves.toBe(true);
+    expect(writeText).toHaveBeenCalledWith('SGO-26ABC123');
+  });
+
+  it('falls back to the copy command when the clipboard API is missing (http on a LAN IP)', async () => {
+    stubClipboard(null);
+    const execCommand = vi.fn().mockReturnValue(true);
+    Object.defineProperty(document, 'execCommand', { value: execCommand, configurable: true });
+    await expect(copyText('SGO-26ABC123')).resolves.toBe(true);
+    expect(execCommand).toHaveBeenCalledWith('copy');
+    expect(document.querySelector('textarea')).toBeNull();
+  });
+
+  it('falls back when the clipboard API refuses', async () => {
+    stubClipboard(vi.fn().mockRejectedValue(new Error('denied')));
+    Object.defineProperty(document, 'execCommand', { value: vi.fn().mockReturnValue(true), configurable: true });
+    await expect(copyText('x')).resolves.toBe(true);
+  });
+
+  it('reports failure when nothing can copy', async () => {
+    stubClipboard(null);
+    Object.defineProperty(document, 'execCommand', { value: vi.fn().mockReturnValue(false), configurable: true });
+    await expect(copyText('x')).resolves.toBe(false);
   });
 });

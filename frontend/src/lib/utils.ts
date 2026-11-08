@@ -92,6 +92,36 @@ export function makeReceiptId(): string {
   return `SGO-${year}${suffix}`;
 }
 
+// ─── Clipboard ───────────────────────────────────────────────
+
+// navigator.clipboard only exists on HTTPS and localhost. The dev server is also opened by LAN IP
+// (e.g. testing on a phone), so fall back to the older copy command there. Returns whether it worked.
+export async function copyText(text: string): Promise<boolean> {
+  try {
+    if (navigator.clipboard?.writeText) {
+      await navigator.clipboard.writeText(text);
+      return true;
+    }
+  } catch {
+    // Permission denied or not focused: try the fallback below.
+  }
+
+  const field = document.createElement('textarea');
+  field.value = text;
+  field.setAttribute('readonly', '');
+  field.style.position = 'fixed';
+  field.style.opacity = '0';
+  document.body.appendChild(field);
+  field.select();
+  try {
+    return typeof document.execCommand === 'function' && document.execCommand('copy');
+  } catch {
+    return false;
+  } finally {
+    field.remove();
+  }
+}
+
 // ─── ARIA live announcer ─────────────────────────────────────
 
 export function announce(msg: string): void {

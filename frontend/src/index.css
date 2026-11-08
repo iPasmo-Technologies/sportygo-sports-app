@@ -20,6 +20,9 @@
   --text-soft-muted: #9097ad;
   --accent-red: #d91f2f;
   --accent-red-hover: #e41d2a;
+  --accent-red-light: #f2454e;
+  --accent-blue-light: #a9c9e6;
+  --accent-blue-soft: rgba(124, 170, 214, 0.08);
   --radius-round: 999px;
   --radius-screen: 26px;
   --radius-card-lg: 20px;
@@ -1678,6 +1681,37 @@ input { font-family: inherit; }
 .sport-event-card-arrow {
   color: var(--accent-red);
 }
+/* Light bright blue on the "Explore →" strip when the pointer is over it, or the card has keyboard focus. */
+.sport-event-card-footer,
+.sport-event-card-footer span,
+.sport-event-card-arrow {
+  transition: background-color var(--transition), color var(--transition), box-shadow var(--transition), transform var(--transition);
+}
+.sport-event-card:not(.is-disabled) .sport-event-card-footer:hover,
+.sport-event-card:not(.is-disabled):focus-visible .sport-event-card-footer {
+  background: var(--accent-blue-soft);
+  box-shadow: inset 0 1px 0 rgba(169, 201, 230, 0.35);
+}
+.sport-event-card:not(.is-disabled) .sport-event-card-footer:hover span,
+.sport-event-card:not(.is-disabled):focus-visible .sport-event-card-footer span {
+  color: var(--accent-blue-light);
+}
+/* The arrow stays red (brand), just a lighter red on hover. */
+.sport-event-card:not(.is-disabled) .sport-event-card-footer:hover .sport-event-card-arrow,
+.sport-event-card:not(.is-disabled):focus-visible .sport-event-card-arrow {
+  color: var(--accent-red-light);
+}
+.sport-event-card:not(.is-disabled) .sport-event-card-footer:hover .sport-event-card-arrow,
+.sport-event-card:not(.is-disabled):focus-visible .sport-event-card-arrow {
+  transform: translateX(3px);
+}
+@media (prefers-reduced-motion: reduce) {
+  .sport-event-card-footer,
+  .sport-event-card-footer span,
+  .sport-event-card-arrow { transition: none; }
+  .sport-event-card:not(.is-disabled) .sport-event-card-footer:hover .sport-event-card-arrow,
+  .sport-event-card:not(.is-disabled):focus-visible .sport-event-card-arrow { transform: none; }
+}
 .sport-card:hover,
 .sport-event-card:hover,
 .facility-select-card:hover {
@@ -1890,6 +1924,34 @@ input { font-family: inherit; }
 }
 .facility-select-card-arrow {
   color: var(--accent-red);
+}
+/* Same hover as the "Explore →" strip on sport activity cards: soft blue strip and text, lighter red arrow.
+   Covers "Book Now →" on facility cards and "Buy Now →" on coaching package cards (same classes). */
+.facility-select-card-footer,
+.facility-select-card-footer span,
+.facility-select-card-arrow {
+  transition: background-color var(--transition), color var(--transition), box-shadow var(--transition), transform var(--transition);
+}
+.facility-select-card:not(.is-disabled) .facility-select-card-footer:hover,
+.facility-select-card:not(.is-disabled):focus-visible .facility-select-card-footer {
+  background: var(--accent-blue-soft);
+  box-shadow: inset 0 1px 0 rgba(169, 201, 230, 0.35);
+}
+.facility-select-card:not(.is-disabled) .facility-select-card-footer:hover span,
+.facility-select-card:not(.is-disabled):focus-visible .facility-select-card-footer span {
+  color: var(--accent-blue-light);
+}
+.facility-select-card:not(.is-disabled) .facility-select-card-footer:hover .facility-select-card-arrow,
+.facility-select-card:not(.is-disabled):focus-visible .facility-select-card-arrow {
+  color: var(--accent-red-light);
+  transform: translateX(3px);
+}
+@media (prefers-reduced-motion: reduce) {
+  .facility-select-card-footer,
+  .facility-select-card-footer span,
+  .facility-select-card-arrow { transition: none; }
+  .facility-select-card:not(.is-disabled) .facility-select-card-footer:hover .facility-select-card-arrow,
+  .facility-select-card:not(.is-disabled):focus-visible .facility-select-card-arrow { transform: none; }
 }
 .facility-select-note {
   margin-top: 16px;
@@ -3847,6 +3909,40 @@ input { font-family: inherit; }
   background: rgba(9, 22, 49, 0.9);
   margin-top: 10px;
 }
+/* Hover / keyboard focus on the success page buttons (coaching purchase and court booking).
+   Primary: same lighter red as the "Book Now" buttons. Secondary: soft gold tint, not a solid fill. */
+.success-primary-btn-v2,
+.success-secondary-btn-v2 {
+  cursor: pointer;
+  transition: background var(--transition), border-color var(--transition), color var(--transition), box-shadow var(--transition), transform var(--transition);
+}
+.success-primary-btn-v2:hover,
+.success-primary-btn-v2:focus-visible {
+  border-color: var(--accent-red-light);
+  background: linear-gradient(180deg, var(--accent-red-light) 0%, var(--accent-red-hover) 100%);
+  box-shadow: 0 0 16px rgba(242, 69, 78, 0.4);
+  transform: translateY(-1px);
+}
+.success-primary-btn-v2:focus-visible { outline: 2px solid var(--accent-red-light); outline-offset: 2px; }
+.success-secondary-btn-v2:hover,
+.success-secondary-btn-v2:focus-visible {
+  border-color: var(--brand-gold);
+  background: rgba(212, 165, 86, 0.12);
+  color: var(--brand-gold);
+  box-shadow: 0 0 12px var(--card-stroke-gold-soft);
+  transform: translateY(-1px);
+}
+.success-secondary-btn-v2:focus-visible { outline: 2px solid var(--brand-gold); outline-offset: 2px; }
+.success-primary-btn-v2:active,
+.success-secondary-btn-v2:active { transform: translateY(0); box-shadow: none; }
+@media (prefers-reduced-motion: reduce) {
+  .success-primary-btn-v2,
+  .success-secondary-btn-v2 { transition: none; }
+  .success-primary-btn-v2:hover,
+  .success-primary-btn-v2:focus-visible,
+  .success-secondary-btn-v2:hover,
+  .success-secondary-btn-v2:focus-visible { transform: none; }
+}
 
 /* ── Immersive My Bookings Screen ─────────────────────────── */
 .bookings-phone {
@@ -5291,10 +5387,41 @@ input { font-family: inherit; }
   margin-bottom: 12px;
 }
 .bookings-section-v2 > header {
-  display: inline-flex;
+  display: flex;
+  width: 100%;
   align-items: center;
   gap: 8px;
   margin-bottom: 10px;
+}
+.bookings-section-v2.is-collapsed > header { margin-bottom: 0; }
+/* Collapse / expand button on the right of each My Bookings section (components/BookingsSection.tsx). */
+.bookings-section-toggle {
+  margin-left: auto;
+  width: 34px;
+  height: 34px;
+  flex: 0 0 34px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border: 1px solid rgba(85, 104, 136, 0.88);
+  border-radius: var(--radius-round);
+  background: rgba(9, 22, 49, 0.82);
+  color: var(--brand-gold);
+  cursor: pointer;
+  transition: background-color var(--transition), border-color var(--transition), box-shadow var(--transition);
+}
+.bookings-section-toggle svg { transform: rotate(180deg); transition: transform var(--transition); }
+.bookings-section-v2.is-collapsed .bookings-section-toggle svg { transform: rotate(0deg); }
+.bookings-section-toggle:hover,
+.bookings-section-toggle:focus-visible {
+  background: var(--overlay-soft);
+  border-color: var(--text-soft);
+  box-shadow: 0 0 10px rgba(196, 202, 218, 0.18);
+}
+.bookings-section-toggle:focus-visible { outline: 2px solid var(--text-soft); outline-offset: 2px; }
+@media (prefers-reduced-motion: reduce) {
+  .bookings-section-toggle,
+  .bookings-section-toggle svg { transition: none; }
 }
 .bookings-section-v2 > header h2 {
   color: #e9eef7;
@@ -5490,9 +5617,55 @@ input { font-family: inherit; }
   border-color: rgba(217, 31, 47, 0.95);
   color: #e12633;
 }
+/* Soft hover for Reschedule (gold) and Cancel Booking (red), same style as View Details (.ghost, below). */
+.bookings-action-btn-v2:not(.ghost) {
+  cursor: pointer;
+  transition: background-color var(--transition), color var(--transition), border-color var(--transition), box-shadow var(--transition), transform var(--transition);
+}
+.bookings-action-btn-v2:not(.ghost):not(.danger):hover:not(:disabled),
+.bookings-action-btn-v2:not(.ghost):not(.danger):focus-visible:not(:disabled) {
+  background: rgba(212, 165, 86, 0.12);
+  border-color: var(--brand-gold);
+  box-shadow: 0 0 10px var(--card-stroke-gold-soft);
+  transform: translateY(-1px);
+}
+.bookings-action-btn-v2:not(.ghost):not(.danger):focus-visible:not(:disabled) { outline: 2px solid var(--brand-gold); outline-offset: 2px; }
+.bookings-action-btn-v2.danger:hover:not(:disabled),
+.bookings-action-btn-v2.danger:focus-visible:not(:disabled) {
+  background: rgba(242, 69, 78, 0.12);
+  border-color: var(--accent-red-light);
+  color: var(--accent-red-light);
+  box-shadow: 0 0 10px rgba(242, 69, 78, 0.25);
+  transform: translateY(-1px);
+}
+.bookings-action-btn-v2.danger:focus-visible:not(:disabled) { outline: 2px solid var(--accent-red-light); outline-offset: 2px; }
+.bookings-action-btn-v2:not(.ghost):active:not(:disabled) { transform: translateY(0); box-shadow: none; }
+@media (prefers-reduced-motion: reduce) {
+  .bookings-action-btn-v2:not(.ghost) { transition: none; }
+  .bookings-action-btn-v2:not(.ghost):hover:not(:disabled),
+  .bookings-action-btn-v2:not(.ghost):focus-visible:not(:disabled) { transform: none; }
+}
 .bookings-action-btn-v2.ghost {
   color: #e8edf6;
   border-color: rgba(85, 104, 136, 0.88);
+  cursor: pointer;
+  transition: background-color var(--transition), color var(--transition), border-color var(--transition), box-shadow var(--transition), transform var(--transition);
+}
+/* Soft light tint on hover / keyboard focus (View Details on court and coaching booking cards). */
+.bookings-action-btn-v2.ghost:hover:not(:disabled),
+.bookings-action-btn-v2.ghost:focus-visible:not(:disabled) {
+  background: var(--overlay-soft);
+  border-color: var(--text-soft);
+  color: var(--text);
+  box-shadow: 0 0 10px rgba(196, 202, 218, 0.18);
+  transform: translateY(-1px);
+}
+.bookings-action-btn-v2.ghost:focus-visible:not(:disabled) { outline: 2px solid var(--text-soft); outline-offset: 2px; }
+.bookings-action-btn-v2.ghost:active:not(:disabled) { transform: translateY(0); box-shadow: none; }
+@media (prefers-reduced-motion: reduce) {
+  .bookings-action-btn-v2.ghost { transition: none; }
+  .bookings-action-btn-v2.ghost:hover:not(:disabled),
+  .bookings-action-btn-v2.ghost:focus-visible:not(:disabled) { transform: none; }
 }
 .bookings-help-v2 {
   border-radius: 12px;
@@ -5531,6 +5704,22 @@ input { font-family: inherit; }
   align-items: center;
   justify-content: center;
   text-decoration: none;
+  transition: background-color var(--transition), border-color var(--transition), box-shadow var(--transition), transform var(--transition);
+}
+/* Same soft gold hover as the Reschedule button. */
+.bookings-help-v2 a:hover,
+.bookings-help-v2 a:focus-visible {
+  background: rgba(212, 165, 86, 0.12);
+  border-color: var(--brand-gold);
+  box-shadow: 0 0 10px var(--card-stroke-gold-soft);
+  transform: translateY(-1px);
+}
+.bookings-help-v2 a:focus-visible { outline: 2px solid var(--brand-gold); outline-offset: 2px; }
+.bookings-help-v2 a:active { transform: translateY(0); box-shadow: none; }
+@media (prefers-reduced-motion: reduce) {
+  .bookings-help-v2 a { transition: none; }
+  .bookings-help-v2 a:hover,
+  .bookings-help-v2 a:focus-visible { transform: none; }
 }
 .booking-details-backdrop {
   position: fixed;
@@ -5695,6 +5884,25 @@ input { font-family: inherit; }
   display: inline-flex;
   align-items: center;
   justify-content: center;
+}
+/* Same soft hover as the View Details button, on every field of the Booking Details popup
+   (court and coaching). The fields are read-only, so this is a highlight only. */
+.booking-details-field,
+.booking-details-id {
+  transition: background-color var(--transition), border-color var(--transition), box-shadow var(--transition), transform var(--transition);
+}
+.booking-details-field:hover,
+.booking-details-id:hover {
+  background: var(--overlay-soft);
+  border-color: var(--text-soft);
+  box-shadow: 0 0 10px rgba(196, 202, 218, 0.18);
+  transform: translateY(-1px);
+}
+@media (prefers-reduced-motion: reduce) {
+  .booking-details-field,
+  .booking-details-id { transition: none; }
+  .booking-details-field:hover,
+  .booking-details-id:hover { transform: none; }
 }
 .booking-details-tags {
   margin-top: 10px;
@@ -6294,4 +6502,296 @@ input { font-family: inherit; }
     font-size: 0.8rem;
     padding: 11px 12px;
   }
+}
+
+/* ── Coaching packages, sessions and bookings (SGO-48) ─────── */
+/* Reuses facility-select-*, terms-*, checkout-* and success-* blocks; only coaching-specific pieces live here. */
+.coach-pkg-per-session { margin-top: var(--space-xxs); color: var(--brand-gold); font-size: 0.78rem; font-weight: 700; }
+.sports-screen-shell .coach-balance-panel { margin-bottom: var(--space-md); }
+
+.coach-balance-panel {
+  display: flex;
+  align-items: center;
+  gap: var(--space-sm);
+  border: 1.5px solid var(--card-stroke-gold);
+  border-bottom: 2px solid var(--card-stroke-red);
+  border-radius: var(--radius-card-md);
+  background: var(--surface-elevated-strong);
+  color: var(--text-soft);
+  font-size: 0.82rem;
+}
+.coach-balance-panel svg { flex-shrink: 0; color: var(--brand-gold); }
+.coach-balance-panel strong { color: var(--text); }
+.coach-balance-panel button {
+  margin-left: auto;
+  flex-shrink: 0;
+  min-height: 36px;
+  padding: 0 var(--space-md);
+  border: 1px solid var(--card-stroke-gold);
+  border-radius: var(--radius-sm);
+  background: var(--surface-deep);
+  color: var(--brand-gold);
+  font-size: 0.74rem;
+  font-weight: 800;
+  cursor: pointer;
+  transition: background-color var(--transition), color var(--transition), box-shadow var(--transition), transform var(--transition);
+}
+/* Gold fill on hover and on keyboard focus, so the action is clear for mouse and keyboard users. */
+.coach-balance-panel button:hover,
+.coach-balance-panel button:focus-visible {
+  background: var(--brand-gold);
+  color: var(--surface-deep);
+  box-shadow: 0 0 14px var(--card-stroke-gold-soft);
+  transform: translateY(-1px);
+}
+.coach-balance-panel button:focus-visible { outline: 2px solid var(--brand-gold); outline-offset: 2px; }
+.coach-balance-panel button:active { transform: translateY(0); box-shadow: none; }
+@media (prefers-reduced-motion: reduce) {
+  .coach-balance-panel button { transition: none; }
+  .coach-balance-panel button:hover,
+  .coach-balance-panel button:focus-visible { transform: none; }
+}
+
+.coach-summary-list { display: grid; gap: var(--space-xs); margin: 0 0 var(--space-md); }
+.coach-summary-list > div { display: flex; justify-content: space-between; gap: var(--space-md); font-size: 0.82rem; }
+.coach-summary-list dt { color: var(--muted); }
+.coach-summary-list dd { margin: 0; color: var(--text); text-align: right; }
+
+.coach-checkout-package { display: flex; align-items: center; gap: var(--space-md); }
+.coach-checkout-package strong { display: block; color: var(--text); font-size: 0.9rem; }
+.coach-checkout-package small { color: var(--text-soft); font-size: 0.74rem; }
+.coach-checkout-package-icon {
+  width: var(--control-size-lg);
+  height: var(--control-size-lg);
+  flex-shrink: 0;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border: 1px solid var(--card-stroke-gold-soft);
+  border-radius: 50%;
+  color: var(--brand-gold);
+}
+
+/* Date search above the session cards. */
+.coach-session-search {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-xs);
+  padding: var(--space-md);
+  border: 1.5px solid var(--card-stroke-gold);
+  border-bottom: 2px solid var(--card-stroke-red);
+  border-radius: var(--radius-card-md);
+  background: var(--surface-elevated-strong);
+}
+.coach-session-search label { color: var(--brand-gold); font-size: 0.9rem; font-weight: 800; }
+.coach-session-search-row { display: flex; gap: var(--space-sm); }
+.coach-session-search input[type="date"] {
+  flex: 1;
+  min-width: 0;
+  min-height: 44px;
+  padding: 0 var(--space-md);
+  border: 1px solid var(--card-stroke-gold-soft);
+  border-radius: var(--radius-sm);
+  background: var(--surface-deep);
+  color: var(--text);
+  font: inherit;
+  font-size: 0.88rem;
+  color-scheme: dark;
+}
+.coach-session-search input[type="date"]:focus-visible {
+  outline: 2px solid var(--brand-gold);
+  outline-offset: 1px;
+  border-color: var(--brand-gold);
+}
+.coach-session-search .coach-session-search-btn {
+  width: auto;
+  min-height: 44px;
+  padding: 0 var(--space-xl);
+  font-size: 0.86rem;
+  cursor: pointer;
+}
+.coach-session-search-hint { color: var(--text-soft-muted); font-size: 0.76rem; }
+.coach-session-search-error { color: var(--error); font-size: 0.78rem; }
+.coach-session-search-result {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-xs);
+  color: var(--text-soft);
+  font-size: 0.78rem;
+}
+.coach-session-search-result strong { color: var(--text); }
+.coach-session-search-result button {
+  border: 0;
+  background: none;
+  padding: 0;
+  color: var(--brand-gold);
+  font-size: 0.78rem;
+  font-weight: 700;
+  text-decoration: underline;
+  cursor: pointer;
+}
+.coach-session-search-result button:hover,
+.coach-session-search-result button:focus-visible { color: var(--text); }
+
+/* Session cards use the facility card frame: gold stroke, red bottom edge, dark footer strip. */
+.coach-session-list { display: flex; flex-direction: column; gap: var(--space-md); }
+.coach-session-card {
+  border-radius: var(--radius-card-md);
+  border: 1.5px solid var(--card-stroke-gold);
+  border-bottom: 2px solid var(--card-stroke-red);
+  background: var(--surface-elevated-strong);
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+}
+.coach-session-card-header {
+  display: flex;
+  align-items: center;
+  gap: var(--space-sm);
+  padding: var(--space-md) var(--space-md) 0;
+}
+.coach-session-card-header h2 { color: var(--brand-gold); font-size: 0.98rem; font-weight: 800; }
+.coach-session-card-badge {
+  width: 42px;
+  height: 42px;
+  flex-shrink: 0;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border: 1.3px solid var(--card-stroke-gold-soft);
+  border-radius: var(--radius-round);
+  background: var(--surface-deep);
+  color: var(--brand-gold);
+}
+.coach-session-card-body {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: var(--space-xxs);
+  padding: var(--space-md);
+}
+.coach-session-card-title { color: var(--text); font-size: 1rem; font-weight: 700; line-height: 1.2; margin-bottom: 2px; }
+.coach-session-card-body p {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--space-xs);
+  color: var(--text-soft);
+  font-size: 0.8rem;
+  line-height: 1.4;
+}
+.coach-session-card-body p svg { flex-shrink: 0; margin-top: 2px; color: var(--brand-gold); }
+.coach-spots-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-xxs);
+  margin-top: var(--space-xxs);
+  padding: 3px var(--space-sm);
+  border: 1px solid var(--card-stroke-gold-soft);
+  border-radius: var(--radius-round);
+  color: var(--brand-gold);
+  font-size: 0.74rem;
+  font-weight: 700;
+}
+.coach-spots-pill.full { border-color: var(--card-stroke-red); color: var(--error); }
+.coach-spots-pill.booked { border-color: var(--success); color: var(--success); }
+.coach-session-card-footer {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-md);
+  padding: var(--space-sm) var(--space-md) var(--space-md);
+  background: var(--surface-deep);
+  color: var(--text-soft);
+  font-size: 0.78rem;
+}
+.coach-session-card-footer > span { display: inline-flex; align-items: center; gap: var(--space-xxs); }
+.coach-session-card-footer > span svg { color: var(--brand-gold); }
+/* Colours come from .terms-proceed-btn (brand red); only the size differs here. */
+.coach-session-card-footer .coach-session-book-btn {
+  width: auto;
+  min-width: 132px;
+  min-height: 44px;
+  font-size: 0.86rem;
+}
+.coach-session-card-footer .coach-session-book-btn {
+  cursor: pointer;
+  transition: background var(--transition), box-shadow var(--transition), transform var(--transition);
+}
+/* Lighter, brighter red on hover and keyboard focus; disabled buttons (Full, Booked, no sessions) stay as they are. */
+.coach-session-card-footer .coach-session-book-btn:hover:not(:disabled),
+.coach-session-card-footer .coach-session-book-btn:focus-visible:not(:disabled) {
+  border-color: var(--accent-red-light);
+  background: linear-gradient(180deg, var(--accent-red-light) 0%, var(--accent-red-hover) 100%);
+  box-shadow: 0 0 16px rgba(242, 69, 78, 0.45);
+  transform: translateY(-1px);
+}
+.coach-session-card-footer .coach-session-book-btn:focus-visible:not(:disabled) { outline: 2px solid var(--accent-red-light); outline-offset: 2px; }
+.coach-session-card-footer .coach-session-book-btn:active:not(:disabled) { transform: translateY(0); box-shadow: none; }
+@media (prefers-reduced-motion: reduce) {
+  .coach-session-card-footer .coach-session-book-btn { transition: none; }
+  .coach-session-card-footer .coach-session-book-btn:hover:not(:disabled),
+  .coach-session-card-footer .coach-session-book-btn:focus-visible:not(:disabled) { transform: none; }
+}
+.coach-session-card-footer .coach-session-book-btn.booked:disabled {
+  border-color: var(--success);
+  background: transparent;
+  color: var(--success);
+  opacity: 1;
+}
+
+.coach-bookings-section .coach-balance-panel { margin-bottom: 0; }
+/* Coaching bookings reuse the court booking card (bookings-card-v2); only the cancelled note is extra. */
+.coach-bookings-section .bookings-card-info-v2 .coach-booking-status { color: var(--brand-gold); }
+
+.coach-profile-note {
+  margin-bottom: var(--space-md);
+  padding: var(--space-sm) var(--space-md);
+  border: 1px solid var(--card-stroke-gold-soft);
+  border-radius: var(--radius);
+  background: var(--surface-elevated);
+  color: var(--text-soft);
+  font-size: 0.8rem;
+}
+
+@media (max-width: 390px) {
+  .coach-balance-panel { flex-wrap: wrap; }
+  .coach-balance-panel button { margin-left: 0; width: 100%; }
+  .coach-session-search-row { flex-direction: column; }
+  .coach-session-search .coach-session-search-btn { width: 100%; }
+  .coach-session-card-footer { flex-wrap: wrap; }
+  .coach-session-card-footer .coach-session-book-btn { width: 100%; }
+}
+
+/* ── Copy button feedback (components/CopyButton.tsx) ─────── */
+/* Each screen keeps its own copy button look; this only adds the ✓ / ✗ state and the bubble. */
+.copy-btn { position: relative; cursor: pointer; transition: color var(--transition), background-color var(--transition), transform var(--transition); }
+.copy-btn:hover { transform: scale(1.08); }
+.copy-btn:focus-visible { outline: 2px solid var(--text-soft); outline-offset: 2px; }
+.copy-btn.is-copied { color: var(--success); }
+.copy-btn.is-failed { color: var(--error); }
+.copy-btn-toast {
+  position: absolute;
+  bottom: calc(100% + 6px);
+  left: 50%;
+  transform: translateX(-50%);
+  padding: 3px var(--space-xs);
+  border: 1px solid var(--card-stroke-gold-soft);
+  border-radius: var(--radius-sm);
+  background: var(--surface-deep);
+  color: var(--text);
+  font-size: 0.7rem;
+  font-weight: 700;
+  white-space: nowrap;
+  pointer-events: none;
+  animation: copyToastIn 160ms ease both;
+  z-index: 2;
+}
+.copy-btn.is-failed .copy-btn-toast { border-color: var(--card-stroke-red); color: var(--error); }
+@keyframes copyToastIn { from { opacity: 0; transform: translate(-50%, 4px); } to { opacity: 1; transform: translate(-50%, 0); } }
+@media (prefers-reduced-motion: reduce) {
+  .copy-btn { transition: none; }
+  .copy-btn:hover { transform: none; }
+  .copy-btn-toast { animation: none; }
 }

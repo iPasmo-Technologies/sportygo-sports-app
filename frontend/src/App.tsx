@@ -19,16 +19,22 @@ import BlockSlotBookingScreen from '@/screens/BlockSlotBookingScreen';
 import ViewBlockedSlotsScreen from '@/screens/ViewBlockedSlotsScreen';
 import ViewUsersScreen from '@/screens/ViewUsersScreen';
 import AdminBookingsScreen from '@/screens/AdminBookingsScreen';
+import CoachPackagesScreen from '@/screens/CoachPackagesScreen';
+import CoachTermsScreen from '@/screens/CoachTermsScreen';
+import CoachCheckoutScreen from '@/screens/CoachCheckoutScreen';
+import CoachPurchaseSuccessScreen from '@/screens/CoachPurchaseSuccessScreen';
+import CoachSessionsScreen from '@/screens/CoachSessionsScreen';
 import InstallAppPrompt from '@/components/InstallAppPrompt';
 
 export default function App() {
   const { state, navigate } = useApp();
-  const isImmersiveScreen = state.screen === 'home' || state.screen === 'sport-select' || state.screen === 'sport-events' || state.screen === 'facility-select' || state.screen === 'schedule' || state.screen === 'terms' || state.screen === 'login' || state.screen === 'forgot-password' || state.screen === 'checkout' || state.screen === 'booking-confirmation' || state.screen === 'bookings' || state.screen === 'profile' || state.screen === 'payment-test' || state.screen === 'block-slots' || state.screen === 'blocked-slots' || state.screen === 'view-users' || state.screen === 'admin-bookings';
-  const topAlignedImmersive = state.screen === 'schedule' || state.screen === 'terms' || state.screen === 'forgot-password' || state.screen === 'checkout' || state.screen === 'booking-confirmation' || state.screen === 'bookings' || state.screen === 'profile' || state.screen === 'payment-test' || state.screen === 'block-slots' || state.screen === 'blocked-slots' || state.screen === 'view-users' || state.screen === 'admin-bookings';
+  const isCoachScreen = state.screen.startsWith('coach-');
+  const isImmersiveScreen = isCoachScreen || state.screen === 'home' || state.screen === 'sport-select' || state.screen === 'sport-events' || state.screen === 'facility-select' || state.screen === 'schedule' || state.screen === 'terms' || state.screen === 'login' || state.screen === 'forgot-password' || state.screen === 'checkout' || state.screen === 'booking-confirmation' || state.screen === 'bookings' || state.screen === 'profile' || state.screen === 'payment-test' || state.screen === 'block-slots' || state.screen === 'blocked-slots' || state.screen === 'view-users' || state.screen === 'admin-bookings';
+  const topAlignedImmersive = isCoachScreen || state.screen === 'schedule' || state.screen === 'terms' || state.screen === 'forgot-password' || state.screen === 'checkout' || state.screen === 'booking-confirmation' || state.screen === 'bookings' || state.screen === 'profile' || state.screen === 'payment-test' || state.screen === 'block-slots' || state.screen === 'blocked-slots' || state.screen === 'view-users' || state.screen === 'admin-bookings';
   const showBottomNav = state.screen !== 'home' && state.screen !== 'login' && state.screen !== 'forgot-password' && state.screen !== 'block-slots' && state.screen !== 'blocked-slots' && state.screen !== 'view-users' && state.screen !== 'admin-bookings';
   const activeBottomItem = state.screen === 'home'
     ? 'home'
-    : state.screen === 'sport-select' || state.screen === 'sport-events' || state.screen === 'facility-select'
+    : state.screen === 'sport-select' || state.screen === 'sport-events' || state.screen === 'facility-select' || state.screen === 'coach-packages'
       ? 'explore'
       : state.screen === 'profile'
         ? 'profile'
@@ -58,6 +64,11 @@ export default function App() {
       {state.screen === 'blocked-slots' && <ViewBlockedSlotsScreen />}
       {state.screen === 'view-users' && <ViewUsersScreen />}
       {state.screen === 'admin-bookings' && <AdminBookingsScreen />}
+      {state.screen === 'coach-packages' && <CoachPackagesScreen />}
+      {state.screen === 'coach-terms' && <CoachTermsScreen />}
+      {state.screen === 'coach-checkout' && <CoachCheckoutScreen />}
+      {state.screen === 'coach-success' && <CoachPurchaseSuccessScreen />}
+      {state.screen === 'coach-sessions' && <CoachSessionsScreen />}
 
       {showBottomNav && (
         <BottomIconNav

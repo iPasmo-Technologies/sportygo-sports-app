@@ -78,3 +78,37 @@ describe('DATA_MIGRATIONS', () => {
     expect(new Set(ids).size).toBe(ids.length);
   });
 });
+
+describe('001-enable-coaching-cards', () => {
+  const COACH_CARD_IDS = ['cricket-coach-session', 'indoor-cricket-coach-session', 'pickleball-coach-session'];
+  const enableCoachingCards = DATA_MIGRATIONS.find((m) => m.id === '001-enable-coaching-cards');
+
+  it('is registered', () => {
+    expect(enableCoachingCards).toBeDefined();
+  });
+
+  it('turns on only the three coach cards and points them at the package screen', async () => {
+    const { client, statements } = fakeClient();
+    await enableCoachingCards!.up(client);
+
+    expect(statements).toHaveLength(1);
+    const [{ sql, params }] = statements;
+    expect(sql).toMatch(/UPDATE sport_events/);
+    expect(sql).toMatch(/enabled = TRUE/);
+    expect(sql).toMatch(/action_target = 'coach-packages'/);
+    expect(sql).toMatch(/title_template = '\{sport\} Coaching Sessions'/);
+    expect(sql).toMatch(/WHERE id = ANY\(\$1::text\[\]\)/);
+    expect(params).toEqual([COACH_CARD_IDS]);
+  });
+
+  it('matches the seed JSON, so new and existing databases end up the same', async () => {
+    const { default: seedEvents } = await import('../data/json/sport-events.json');
+    const coachCards = seedEvents.filter((event) => event.imageKey === 'coach');
+    for (const card of coachCards) {
+      const shouldBeOn = COACH_CARD_IDS.includes(card.id);
+      expect({ id: card.id, enabled: card.enabled, actionTarget: card.actionTarget === 'coach-packages' })
+        .toEqual({ id: card.id, enabled: shouldBeOn, actionTarget: shouldBeOn });
+      if (shouldBeOn) expect(card.titleTemplate).toBe('{sport} Coaching Sessions');
+    }
+  });
+});

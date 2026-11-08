@@ -46,10 +46,12 @@ import { calculateBookingPricing } from '../lib/bookingPricing';
 import { sendBookingConfirmationEmail } from '../lib/email';
 import { getStripeClient, isStripeConfigured } from '../lib/stripe';
 import bookingsRoutes from './bookings';
+import paymentsRoutes from './payments';
 
 const app = express();
 app.use(express.json());
 app.use('/api/bookings', bookingsRoutes);
+app.use('/api/payments', paymentsRoutes);
 
 const CUSTOMER = 'user@example.com';
 const TOKEN = jwt.sign({ email: CUSTOMER, role: 'public' }, SECRET, { expiresIn: '1h' });
@@ -91,7 +93,7 @@ function postBooking(body: Record<string, unknown>, token: string | null = TOKEN
 }
 
 function postMock(token: string | null = TOKEN) {
-  const req = request(app).post('/api/bookings/mock').send({ ...BOOKING, stripePaymentIntentId: undefined });
+  const req = request(app).post('/api/payments/mock').send({ type: 'court', ...BOOKING, stripePaymentIntentId: undefined });
   return token ? req.set('Authorization', `Bearer ${token}`) : req;
 }
 
@@ -207,7 +209,7 @@ describe('POST /api/bookings - other payment methods', () => {
   });
 });
 
-describe('POST /api/bookings/mock', () => {
+describe('POST /api/payments/mock (court)', () => {
   // Regression: any logged-in user could create a confirmed, "paid" booking without paying.
   it('is hidden (404) when MOCK_PAYMENT_ENABLED is not set', async () => {
     vi.stubEnv('MOCK_PAYMENT_ENABLED', undefined);
@@ -257,6 +259,24 @@ describe('POST /api/bookings/mock', () => {
     vi.stubEnv('MOCK_PAYMENT_ENABLED', 'true');
     vi.stubEnv('NODE_ENV', 'development');
     expect((await postMock(null)).status).toBe(401);
+    expect(saveBooking).not.toHaveBeenCalled();
+  });
+
+  it.each([undefined, 'COURT', 'other', 'constructor'])('rejects an unknown type (%s) when enabled', async (type) => {
+    vi.stubEnv('MOCK_PAYMENT_ENABLED', 'true');
+    vi.stubEnv('NODE_ENV', 'development');
+    const res = await request(app).post('/api/payments/mock').set('Authorization', `Bearer ${TOKEN}`)
+      .send({ ...BOOKING, type, stripePaymentIntentId: undefined });
+    expect(res.status).toBe(400);
+    expect(saveBooking).not.toHaveBeenCalled();
+  });
+
+  it('is no longer served at the old /api/bookings/mock URL', async () => {
+    vi.stubEnv('MOCK_PAYMENT_ENABLED', 'true');
+    vi.stubEnv('NODE_ENV', 'development');
+    const res = await request(app).post('/api/bookings/mock').set('Authorization', `Bearer ${TOKEN}`)
+      .send({ ...BOOKING, stripePaymentIntentId: undefined });
+    expect(res.status).not.toBe(200);
     expect(saveBooking).not.toHaveBeenCalled();
   });
 });

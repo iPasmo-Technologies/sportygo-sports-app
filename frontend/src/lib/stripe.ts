@@ -11,3 +11,7 @@ if (isLiveStripeKeyOverHttp) {
 
 export const stripePublishableKey = isLiveStripeKeyOverHttp ? '' : STRIPE_PUBLISHABLE_KEY;
 export const stripePromise = stripePublishableKey ? loadStripe(stripePublishableKey) : null;
+
+// Shows the "Mock Pay" test button in court and coaching checkout. It only works when the backend
+// also has MOCK_PAYMENT_ENABLED=true outside production; otherwise the server answers 404.
+export const mockPaymentEnabled = (import.meta.env.VITE_MOCK_PAYMENT_ENABLED ?? 'false').trim() === 'true';

@@ -1,6 +1,9 @@
 import { Router } from 'express';
 import { asyncHandler } from '../middleware/asyncHandler';
 import { authMiddleware, type AuthenticatedRequest } from '../middleware/authMiddleware';
+import { requireMockPaymentEnabled } from '../middleware/mockPayment';
+import { createMockCourtBooking } from './bookings';
+import { createMockCoachingPurchase } from './coaching';
 import { getStripeClient, isStripeConfigured, toMinorCurrencyUnits } from '../lib/stripe';
 import { calculateBookingPricing } from '../lib/bookingPricing';
 import { getConfigBoolean, type SportRow } from '../lib/database';
@@ -100,6 +103,24 @@ router.post('/stripe/payment-intent', authMiddleware, asyncHandler(async (req: A
   } catch (error) {
     console.error('[payments] Stripe payment initialization failed:', error);
     res.status(502).json({ error: 'Unable to start card payment. Please try again later.' });
+  }
+}));
+
+// POST /api/payments/mock  { type: 'court' | 'coaching', ... }
+// Mock Pay for local testing: one URL for every booking type. Hidden (404) unless MOCK_PAYMENT_ENABLED=true
+// outside production, checked before the login so it can't be discovered. Each type keeps its own
+// validation in its own route file; this only picks which one runs.
+router.post('/mock', requireMockPaymentEnabled, authMiddleware, asyncHandler(async (req: AuthenticatedRequest, res) => {
+  const type = (req.body as { type?: unknown } | undefined)?.type;
+  switch (type) {
+    case 'court':
+      await createMockCourtBooking(req, res);
+      return;
+    case 'coaching':
+      await createMockCoachingPurchase(req, res);
+      return;
+    default:
+      res.status(400).json({ error: "Mock payment type must be 'court' or 'coaching'." });
   }
 }));
 

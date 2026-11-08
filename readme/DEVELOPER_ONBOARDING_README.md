@@ -335,7 +335,7 @@ Important:
 - `PASSWORD_AT_REST_KEY` is used to encrypt passwords stored in the database.
 - `DATABASE_URL` is required for real database mode.
 - `STRIPE_SECRET_KEY` must be a Stripe test secret key for local development.
-- `MOCK_PAYMENT_ENABLED=true` lets the Mock Pay button create bookings without a card, for local testing only. It never works when `NODE_ENV=production`. Never set it on a shared or production server.
+- `MOCK_PAYMENT_ENABLED=true` lets the Mock Pay button create court bookings and coaching package purchases without a card, for local testing only. It never works when `NODE_ENV=production`. Never set it on a shared or production server.
 - SMTP settings are required to send real password-reset and booking emails.
 - Do not copy production secrets into a developer laptop unless explicitly approved.
 

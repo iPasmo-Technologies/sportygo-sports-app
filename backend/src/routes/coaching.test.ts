@@ -57,10 +57,12 @@ import {
 } from '../lib/database';
 import { getStripeClient, isStripeConfigured } from '../lib/stripe';
 import coachingRoutes from './coaching';
+import paymentsRoutes from './payments';
 
 const app = express();
 app.use(express.json());
 app.use('/api/coaching', coachingRoutes);
+app.use('/api/payments', paymentsRoutes);
 
 const CUSTOMER = 'user@example.com';
 const TOKEN = jwt.sign({ email: CUSTOMER, role: 'public' }, SECRET, { expiresIn: '1h' });
@@ -386,5 +388,94 @@ describe('POST /api/coaching/sessions/:id/cancel (admin)', () => {
 
   it('rejects a malformed id', async () => {
     expect((await cancel('abc', ADMIN_TOKEN)).status).toBe(400);
+  });
+});
+
+describe('POST /api/payments/mock (coaching)', () => {
+  function postMock(token: string | null = TOKEN, body: Record<string, unknown> = { packageId: PACKAGE.id }) {
+    return withToken(request(app).post('/api/payments/mock'), token).send({ type: 'coaching', ...body });
+  }
+
+  function enableMock(nodeEnv = 'development') {
+    vi.stubEnv('MOCK_PAYMENT_ENABLED', 'true');
+    vi.stubEnv('NODE_ENV', nodeEnv);
+  }
+
+  beforeEach(() => {
+    vi.spyOn(console, 'warn').mockImplementation(() => undefined);
+  });
+
+  afterEach(() => {
+    vi.unstubAllEnvs();
+  });
+
+  it.each([undefined, 'false', '', '1', 'yes'])('is hidden (404) when MOCK_PAYMENT_ENABLED is %s', async (value) => {
+    vi.stubEnv('MOCK_PAYMENT_ENABLED', value);
+    vi.stubEnv('NODE_ENV', 'development');
+    expect((await postMock()).status).toBe(404);
+    expect(createCoachingPurchase).not.toHaveBeenCalled();
+  });
+
+  it('is hidden in production even when the flag is true', async () => {
+    enableMock('production');
+    expect((await postMock()).status).toBe(404);
+    expect(createCoachingPurchase).not.toHaveBeenCalled();
+  });
+
+  it('hides itself before checking login, so it cannot be discovered', async () => {
+    vi.stubEnv('MOCK_PAYMENT_ENABLED', undefined);
+    expect((await postMock(null)).status).toBe(404);
+  });
+
+  it('still requires a login when enabled', async () => {
+    enableMock();
+    expect((await postMock(null)).status).toBe(401);
+    expect(createCoachingPurchase).not.toHaveBeenCalled();
+  });
+
+  it('credits the package at the server price without calling Stripe', async () => {
+    enableMock();
+    const res = await postMock();
+
+    expect(res.status).toBe(201);
+    expect(res.body).toEqual({ purchase: PURCHASE });
+    expect(createCoachingPurchase).toHaveBeenCalledWith(expect.objectContaining({
+      customerEmail: CUSTOMER,
+      packageId: PACKAGE.id,
+      amountPaid: 92.63,
+      receiptId: expect.stringMatching(/^SGO-C[0-9A-F]{8}$/),
+      stripePaymentIntentId: expect.stringMatching(/^mock_[0-9a-f-]{36}$/),
+    }));
+    expect(getStripeClient).not.toHaveBeenCalled();
+  });
+
+  it('ignores a price or email sent by the client', async () => {
+    enableMock();
+    await postMock(TOKEN, { packageId: PACKAGE.id, amountPaid: 0.01, customerEmail: 'someone@else.com' });
+    expect(createCoachingPurchase).toHaveBeenCalledWith(expect.objectContaining({ customerEmail: CUSTOMER, amountPaid: 92.63 }));
+  });
+
+  it('rejects a bad or unknown package', async () => {
+    enableMock();
+    expect((await postMock(TOKEN, { packageId: 'DROP TABLE' })).status).toBe(400);
+    vi.mocked(findCoachingPackage).mockResolvedValue(null);
+    expect((await postMock()).status).toBe(404);
+    expect(createCoachingPurchase).not.toHaveBeenCalled();
+  });
+
+  it('is no longer served at the old /api/coaching/purchases/mock URL', async () => {
+    enableMock();
+    const res = await withToken(request(app).post('/api/coaching/purchases/mock'), TOKEN).send({ packageId: PACKAGE.id });
+    expect(res.status).not.toBe(201);
+    expect(createCoachingPurchase).not.toHaveBeenCalled();
+  });
+
+  it('needs a real name and mobile, like a paid purchase', async () => {
+    enableMock();
+    vi.mocked(findUserByEmail).mockResolvedValue({ ...USER, fullName: 'User' });
+    const res = await postMock();
+    expect(res.status).toBe(422);
+    expect(res.body.code).toBe('profile-incomplete');
+    expect(createCoachingPurchase).not.toHaveBeenCalled();
   });
 });

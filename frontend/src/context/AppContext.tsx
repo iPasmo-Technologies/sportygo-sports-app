@@ -8,6 +8,7 @@ import React, {
 import type { Action, AppState, Screen, BookingType, PayMethod } from '@/types';
 import { calcPricing, parseRate } from '@/lib/pricing';
 import { PLATFORM_FEE } from '@/lib/constants';
+import { coachNavigationGuard } from '@/lib/coaching';
 
 // ─────────────────────────────────────────────────────────────
 // Initial state
@@ -39,6 +40,8 @@ const initialState: AppState = {
   whatsAppMockSent: false,
   paymentError:     null,
   postLoginRedirect: null,
+  selectedCoachPackage: null,
+  coachPurchase:    null,
 
 };
 
@@ -139,6 +142,12 @@ function reducer(state: AppState, action: Action): AppState {
     case 'SET_POST_LOGIN_REDIRECT':
       return { ...state, postLoginRedirect: action.payload };
 
+    case 'SET_COACH_PACKAGE':
+      return { ...state, selectedCoachPackage: action.payload };
+
+    case 'SET_COACH_PURCHASE':
+      return { ...state, coachPurchase: action.payload };
+
     case 'MARK_WHATSAPP_SENT':
       return { ...state, whatsAppMockSent: true };
 
@@ -181,6 +190,18 @@ export function AppProvider({ children }: { children: ReactNode }) {
   const navigate = useCallback(
     (target: Screen) => {
       // Navigation guards
+      const coachGuard = coachNavigationGuard(target, {
+        screen: state.screen,
+        isLoggedIn: state.isLoggedIn,
+        selectedCoachPackage: state.selectedCoachPackage,
+        coachPurchase: state.coachPurchase,
+      });
+      if (coachGuard?.kind === 'block') return;
+      if (coachGuard?.kind === 'login') {
+        dispatch({ type: 'SET_POST_LOGIN_REDIRECT', payload: coachGuard.returnTo });
+        dispatch({ type: 'SET_SCREEN', payload: 'login' });
+        return;
+      }
       if (target === 'schedule' && !state.bookingType)           return;
       if (target === 'terms' && (!state.selectedDate || !state.selectedTime)) return;
       if (target === 'booking-confirmation' && state.screen !== 'checkout')    return; // only via payment flow
@@ -208,7 +229,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
 
       dispatch({ type: 'SET_SCREEN', payload: target });
     },
-    [state.bookingType, state.isLoggedIn, state.selectedDate, state.selectedTime, state.screen, state.userRole]
+    [state.bookingType, state.isLoggedIn, state.selectedDate, state.selectedTime, state.screen, state.userRole, state.selectedCoachPackage, state.coachPurchase]
   );
 
   const goBack = useCallback(() => {

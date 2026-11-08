@@ -14,7 +14,29 @@ export type DataMigration = {
   up: (client: PoolClient) => Promise<void>;
 };
 
-export const DATA_MIGRATIONS: DataMigration[] = [];
+export const DATA_MIGRATIONS: DataMigration[] = [
+  {
+    // SGO-48: the coach card opens the coaching package screen for these three sports.
+    // Matches sport-events.json (backend and frontend) and database/scripts/v1.1_one_on_one_setup.sql.
+    id: '001-enable-coaching-cards',
+    description: 'Turn on the coaching card for cricket, indoor cricket and pickleball',
+    up: async (client) => {
+      await client.query(
+        `UPDATE sport_events
+         SET enabled = TRUE,
+             action_target = 'coach-packages',
+             title_template = '{sport} Coaching Sessions',
+             updated_at = NOW(),
+             updated_by = 'system'
+         WHERE id = ANY($1::text[])
+           AND (enabled IS DISTINCT FROM TRUE
+             OR action_target IS DISTINCT FROM 'coach-packages'
+             OR title_template IS DISTINCT FROM '{sport} Coaching Sessions')`,
+        [['cricket-coach-session', 'indoor-cricket-coach-session', 'pickleball-coach-session']]
+      );
+    },
+  },
+];
 
 export async function applyDataMigrations(client: PoolClient, migrations: DataMigration[] = DATA_MIGRATIONS): Promise<void> {
   await client.query(`

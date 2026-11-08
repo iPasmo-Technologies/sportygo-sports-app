@@ -16,6 +16,7 @@ import {
 } from 'lucide-react';
 import { useApp } from '@/context/AppContext';
 import { ApiError, fetchProfile, updateProfile } from '@/lib/api';
+import { hasContactDetailsForCoaching } from '@/lib/coaching';
 import { clearRememberedAuth } from '@/lib/rememberedAuth';
 import { announce } from '@/lib/utils';
 import ScreenHeader from '@/components/ScreenHeader';
@@ -121,6 +122,13 @@ export default function ProfileScreen() {
       setEditMode(false);
       setSuccess('Profile updated successfully.');
       announce('Profile updated successfully.');
+
+      // The coaching flow sent the user here to add their details; take them back once they are real.
+      const returnTo = state.postLoginRedirect;
+      if ((returnTo === 'coach-terms' || returnTo === 'coach-checkout') && hasContactDetailsForCoaching(updatedProfile)) {
+        dispatch({ type: 'SET_POST_LOGIN_REDIRECT', payload: null });
+        navigate(returnTo);
+      }
     } catch (err) {
       const message = err instanceof Error ? err.message : 'Unable to update profile. Please try again.';
       setError(message);
@@ -146,6 +154,12 @@ export default function ProfileScreen() {
         </section>
 
         <ErrorBanner message={error} onDismiss={() => setError(null)} />
+
+        {(state.postLoginRedirect === 'coach-terms' || state.postLoginRedirect === 'coach-checkout') && (
+          <p className="coach-profile-note" role="status">
+            To buy a coaching package, tap the edit (pencil) button and add your full name and mobile number. We will take you back once you save.
+          </p>
+        )}
 
         {success && (
           <div className="success-banner" role="status">

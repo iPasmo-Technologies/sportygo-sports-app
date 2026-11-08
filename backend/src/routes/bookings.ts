@@ -1,4 +1,4 @@
-import { Router, type NextFunction, type Request, type Response } from 'express';
+import { Router, type Response } from 'express';
 import { asyncHandler } from '../middleware/asyncHandler';
 import { authMiddleware, requireAdminRole, type AuthenticatedRequest } from '../middleware/authMiddleware';
 import { BookingNotManageableError, cancelBooking, FacilityUnavailableError, listAllBookingsForAdmin, listBookingsByCustomer, PaymentAlreadyUsedError, rescheduleBooking, saveBooking, SlotAlreadyBookedError, SlotConfigurationMissingError, type SportFacilityRow } from '../lib/database';
@@ -37,22 +37,6 @@ function notifyBookingConfirmation(input: Parameters<typeof sendBookingConfirmat
   void sendBookingConfirmationEmail(input).catch((error) => {
     console.error('[booking:confirmation] Notification email failed:', error);
   });
-}
-
-// Mock Pay creates confirmed bookings without payment, so it must be switched on explicitly
-// and can never run in production. Read per request so a config change needs no code change.
-function isMockPaymentEnabled(): boolean {
-  return process.env.NODE_ENV !== 'production'
-    && (process.env.MOCK_PAYMENT_ENABLED ?? '').trim().toLowerCase() === 'true';
-}
-
-function requireMockPaymentEnabled(_req: Request, res: Response, next: NextFunction): void {
-  if (!isMockPaymentEnabled()) {
-    // Same response as an unknown route, so the endpoint cannot be discovered.
-    res.status(404).json({ error: 'Not found.' });
-    return;
-  }
-  next();
 }
 
 // Only card payments through Stripe are integrated. GPAY/PAYNOW/GRABPAY are "Coming soon" in the app.
@@ -158,8 +142,9 @@ router.patch('/:receiptId/reschedule', authMiddleware, asyncHandler(async (req: 
   }
 }));
 
-// POST /api/bookings/mock (requires Bearer token; only when MOCK_PAYMENT_ENABLED=true outside production)
-router.post('/mock', requireMockPaymentEnabled, authMiddleware, asyncHandler(async (req: AuthenticatedRequest, res) => {
+// Mock Pay for a court booking: confirms the booking without Stripe. Reached only through
+// POST /api/payments/mock { type: 'court', ... }, which checks MOCK_PAYMENT_ENABLED and the login first.
+export async function createMockCourtBooking(req: AuthenticatedRequest, res: Response): Promise<void> {
   const customerEmail = req.user?.email?.trim().toLowerCase();
   if (!customerEmail) {
     res.status(401).json({ error: 'Authorization token is required.' });
@@ -252,7 +237,7 @@ router.post('/mock', requireMockPaymentEnabled, authMiddleware, asyncHandler(asy
   });
 
   res.json({ receiptId: payload.receiptId, status: 'success', paymentMethod: 'ONLINE' });
-}));
+}
 
 // POST /api/bookings  (requires Bearer token)
 router.post('/', authMiddleware, asyncHandler(async (req: AuthenticatedRequest, res) => {

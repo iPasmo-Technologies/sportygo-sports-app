@@ -7,13 +7,16 @@
 --   Part B: other database changes on this branch that are not on main yet
 --           (Stripe payment reuse protection for court bookings, and the
 --           table that records one-time data migrations).
+--   Part C: one-time data changes from backend/src/lib/dataMigrations.ts
+--           (turns on the coaching cards).
 -- Generated from a database built by this branch's `db:migrate` and `db:seed`.
 --
 -- Run v1.0_initial_db_setup.sql first.
 --
 -- Safe to run more than once: IF NOT EXISTS everywhere and every INSERT uses
--- ON CONFLICT DO NOTHING. Nothing is deleted and existing rows are never
--- changed. No customer data is included.
+-- ON CONFLICT DO NOTHING. Nothing is deleted. Existing rows are only changed
+-- by Part C, once per database (recorded in applied_data_migrations, like the
+-- app does). No customer data is included.
 --
 -- How to run (one transaction: everything is applied, or nothing):
 --   psql "<connection string>" -v ON_ERROR_STOP=1 -f database/scripts/v1.1_one_on_one_setup.sql
@@ -219,5 +222,31 @@ CREATE TABLE IF NOT EXISTS applied_data_migrations (
     applied_at TIMESTAMPTZ DEFAULT NOW() NOT NULL,
     CONSTRAINT applied_data_migrations_pkey PRIMARY KEY (id)
 );
+
+
+-- =============================================================================
+-- Part C: one-time data changes (same as backend/src/lib/dataMigrations.ts)
+-- =============================================================================
+
+
+-- -----------------------------------------------------------------------------
+-- C1. Turn on the coaching card for cricket, indoor cricket and pickleball
+--     (data migration 001-enable-coaching-cards)
+-- -----------------------------------------------------------------------------
+
+-- Skipped when the app (or an earlier run of this script) already applied it,
+-- so later edits to these cards are never overwritten.
+UPDATE sport_events
+SET enabled = TRUE,
+    action_target = 'coach-packages',
+    title_template = '{sport} Coaching Sessions',
+    updated_at = NOW(),
+    updated_by = 'system'
+WHERE id IN ('cricket-coach-session', 'indoor-cricket-coach-session', 'pickleball-coach-session')
+  AND NOT EXISTS (SELECT 1 FROM applied_data_migrations WHERE id = '001-enable-coaching-cards');
+
+INSERT INTO applied_data_migrations (id, description) VALUES
+  ('001-enable-coaching-cards', 'Turn on the coaching card for cricket, indoor cricket and pickleball')
+ON CONFLICT DO NOTHING;
 
 COMMIT;

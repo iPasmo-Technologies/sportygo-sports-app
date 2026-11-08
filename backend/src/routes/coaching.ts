@@ -1,4 +1,4 @@
-import { randomBytes } from 'crypto';
+import { randomBytes, randomUUID } from 'crypto';
 import { Router, type Response } from 'express';
 import { asyncHandler } from '../middleware/asyncHandler';
 import { authMiddleware, requireAdminRole, type AuthenticatedRequest } from '../middleware/authMiddleware';
@@ -228,6 +228,53 @@ router.post('/purchases', authMiddleware, asyncHandler(async (req: Authenticated
     throw error;
   }
 }));
+
+// Mock Pay for a coaching package: credits it without Stripe. Reached only through
+// POST /api/payments/mock { type: 'coaching', packageId }, which checks MOCK_PAYMENT_ENABLED and the login first.
+// Same package, profile and pricing checks as a real purchase. The table needs a unique payment id,
+// so a made-up "mock_" id is stored; it can never match a real Stripe id (those start with "pi_").
+export async function createMockCoachingPurchase(req: AuthenticatedRequest, res: Response): Promise<void> {
+  const customerEmail = customerEmailOf(req);
+  const packageId = parseString((req.body as { packageId?: unknown }).packageId, PACKAGE_ID_RE);
+  if (!packageId) {
+    res.status(400).json({ error: 'Select a valid coaching package.' });
+    return;
+  }
+
+  const pkg = await findCoachingPackage(packageId);
+  if (!pkg) {
+    res.status(404).json({ error: 'This coaching package is not available.' });
+    return;
+  }
+
+  const user = await findUserByEmail(customerEmail);
+  if (!user || !hasContactDetailsForCoaching(user)) {
+    res.status(422).json({
+      error: 'Please add your full name and mobile number to your profile before buying a package.',
+      code: 'profile-incomplete',
+    });
+    return;
+  }
+
+  const pricing = calculateCoachingPackagePricing(pkg.price);
+  try {
+    const { purchase } = await createCoachingPurchase({
+      customerEmail,
+      packageId: pkg.id,
+      amountPaid: pricing.grandTotal,
+      receiptId: newCoachingReceiptId(),
+      stripePaymentIntentId: `mock_${randomUUID()}`,
+    });
+    console.warn(`[coaching] Mock purchase created without payment (receipt ${purchase.receiptId}).`);
+    res.status(201).json({ purchase });
+  } catch (error) {
+    if (error instanceof CoachingPackageUnavailableError) {
+      res.status(404).json({ error: 'This coaching package is not available.' });
+      return;
+    }
+    throw error;
+  }
+}
 
 // GET /api/coaching/balance?sportId=
 router.get('/balance', authMiddleware, asyncHandler(async (req: AuthenticatedRequest, res) => {

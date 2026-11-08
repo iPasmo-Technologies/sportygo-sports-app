@@ -2,7 +2,8 @@
 // Shared application types
 // ─────────────────────────────────────────────────────────────
 
-export type Screen = 'home' | 'sport-select' | 'sport-events' | 'facility-select' | 'schedule' | 'terms' | 'login' | 'forgot-password' | 'checkout' | 'booking-confirmation' | 'bookings' | 'profile' | 'payment-test' | 'block-slots' | 'blocked-slots' | 'view-users' | 'admin-bookings';
+export type Screen = 'home' | 'sport-select' | 'sport-events' | 'facility-select' | 'schedule' | 'terms' | 'login' | 'forgot-password' | 'checkout' | 'booking-confirmation' | 'bookings' | 'profile' | 'payment-test' | 'block-slots' | 'blocked-slots' | 'view-users' | 'admin-bookings'
+  | 'coach-packages' | 'coach-terms' | 'coach-checkout' | 'coach-success' | 'coach-sessions';
 export type UserRole = 'public' | 'coach' | 'admin';
 export type SportId = 'cricket' | 'indoor-cricket' | 'pickleball' | 'futsal' | 'sepak-takraw' | 'tennis' | 'table-tennis' | 'soccer' | 'volleyball' | 'badminton' | 'basketball' | 'kabaddi';
 export type SportImageKey = SportId;
@@ -20,7 +21,7 @@ export interface SportOption {
 }
 
 export type SportEventImageKey = 'facility' | 'academy' | 'coach' | 'gear';
-export type SportEventActionTarget = 'facility-select' | 'schedule';
+export type SportEventActionTarget = 'facility-select' | 'schedule' | 'coach-packages';
 export type SportEventIcon = 'calendar' | 'academy' | 'coach' | 'shop';
 
 export type SportFacilityImageKey = 'bowling-lane' | 'nets-2' | 'nets-3' | 'nets-4' | 'indoor-court' | 'outdoor-field' | 'pb-indoor-court' | 'pb-outdoor-court';
@@ -128,6 +129,8 @@ export interface AppState {
   whatsAppMockSent: boolean;
   paymentError: string | null;
   postLoginRedirect: Screen | null;
+  selectedCoachPackage: CoachingPackage | null;
+  coachPurchase: CoachingPurchase | null;
 }
 
 export type Action =
@@ -152,6 +155,8 @@ export type Action =
   | { type: 'SET_PAYMENT_CARD'; payload: { brand: string; last4: string } | null }
   | { type: 'SET_PAYMENT_ERROR'; payload: string | null }
   | { type: 'SET_POST_LOGIN_REDIRECT'; payload: Screen | null }
+  | { type: 'SET_COACH_PACKAGE'; payload: CoachingPackage | null }
+  | { type: 'SET_COACH_PURCHASE'; payload: CoachingPurchase | null }
   | { type: 'MARK_WHATSAPP_SENT' }
   | { type: 'LOG_OUT' }
   | { type: 'RESET' };
@@ -359,4 +364,102 @@ export interface BookingRescheduleResponse {
   receiptId: string;
   selectedDate: string;
   selectedTime: string;
+}
+
+// ─── Coaching (shapes match backend/src/routes/coaching.ts) ───
+
+export interface CoachingPricing {
+  priceSubtotal: number;
+  tax: number;
+  platformFee: number;
+  grandTotal: number;
+}
+
+export interface CoachingPackage {
+  id: string;
+  sportId: SportId;
+  title: string;
+  sessionCount: number;
+  price: number;
+  validityWeeks: number;
+  description: string;
+  enabled: boolean;
+  sortOrder: number;
+  pricing: CoachingPricing;
+}
+
+export interface CoachingPackagesResponse {
+  packages: CoachingPackage[];
+}
+
+export interface CoachingPaymentIntentResponse {
+  clientSecret: string;
+  paymentIntentId: string;
+  receiptId: string;
+  amount: number;
+  currency: string;
+  pricing: CoachingPricing;
+}
+
+export interface CoachingPurchase {
+  id: string;
+  sportId: SportId;
+  packageId: string;
+  packageTitle: string;
+  totalSessions: number;
+  remainingSessions: number;
+  amountPaid: number;
+  receiptId: string;
+  purchasedAt: string; // ISO timestamp (UTC)
+  expiresAt: string;   // ISO timestamp (UTC)
+}
+
+export interface CoachingPurchaseResponse {
+  purchase: CoachingPurchase;
+}
+
+export interface CoachingBalanceResponse {
+  remainingSessions: number;
+  purchases: CoachingPurchase[];
+}
+
+export interface CoachingSession {
+  id: string;
+  sportId: SportId;
+  sessionDate: string; // 'YYYY-MM-DD' (Singapore)
+  startTime: string;   // 'HH:MM'
+  endTime: string;     // 'HH:MM'
+  title: string;
+  location: string;
+  spots: number;
+  bookedCount: number;
+  spotsLeft: number;
+  bookedByMe: boolean;
+}
+
+export interface CoachingSessionsResponse {
+  sessions: CoachingSession[];
+}
+
+export interface CoachingSessionBookingResponse {
+  bookingId: string;
+  remainingSessions: number;
+}
+
+export interface CoachingBooking {
+  bookingId: string;
+  sessionId: string;
+  sportId: SportId;
+  sessionDate: string;
+  startTime: string;
+  endTime: string;
+  title: string;
+  location: string;
+  status: 'booked' | 'cancelled';
+  sessionStatus: 'scheduled' | 'cancelled';
+  bookedAt: string;
+}
+
+export interface CoachingBookingsResponse {
+  bookings: CoachingBooking[];
 }
