@@ -23,6 +23,7 @@ import cricketFacility from '@/assets/cricket_facility.png';
 import pickleballIndoorCourt from '@/assets/pb-indoor-court.png';
 import pickleballOutdoorCourt from '@/assets/pb-outdoor-court.png';
 import { formatDateShort } from '@/lib/utils';
+import { courtSubtotal, parseRate } from '@/lib/pricing';
 
 const SPORT_LABELS = {
   cricket: 'Cricket',
@@ -99,11 +100,6 @@ function addMinutes(time: string, minutes: number): string {
   return `${String(nextH).padStart(2, '0')}:${String(nextM).padStart(2, '0')}`;
 }
 
-function parseRate(price: string): number {
-  const parsed = Number(price.replace(/[^0-9.]/g, ''));
-  return Number.isFinite(parsed) && parsed > 0 ? parsed : 0;
-}
-
 export default function TermsScreen() {
   const { state, navigate, goBack } = useApp();
   const [agreed, setAgreed] = useState(false);
@@ -117,7 +113,7 @@ export default function TermsScreen() {
   const selectedDateText = state.selectedDate ? formatDateShort(state.selectedDate) : 'Not selected';
 
   const selectedEndTime = state.selectedTime ? addMinutes(state.selectedTime, state.durationMins) : null;
-  const total = (selectedRatePerHour * (state.durationMins / 60)).toFixed(2);
+  const total = courtSubtotal(selectedRatePerHour, state.durationMins).toFixed(2);
 
   function handleProceed() {
     if (!agreed) return;

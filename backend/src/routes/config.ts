@@ -1,20 +1,21 @@
 import { Router } from 'express';
+import { asyncHandler } from '../middleware/asyncHandler';
 import { getAllConfigs, getConfigByType } from '../lib/database';
 
 const router = Router();
 
 // GET /api/config — all active configs grouped by type
-router.get('/', async (_req, res) => {
+router.get('/', asyncHandler(async (_req, res) => {
   try {
     const configs = await getAllConfigs();
     res.json({ configs });
   } catch {
     res.status(500).json({ error: 'Unable to load configuration.' });
   }
-});
+}));
 
 // GET /api/config/:type — configs for one type (e.g. /api/config/pricing)
-router.get('/:type', async (req, res) => {
+router.get('/:type', asyncHandler(async (req, res) => {
   const configType = req.params.type.toUpperCase();
   try {
     const configs = await getConfigByType(configType);
@@ -26,6 +27,6 @@ router.get('/:type', async (req, res) => {
   } catch {
     res.status(500).json({ error: 'Unable to load configuration.' });
   }
-});
+}));
 
 export default router;

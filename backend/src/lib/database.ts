@@ -3,7 +3,15 @@ import { Pool, type PoolClient, type QueryResultRow } from 'pg';
 import DEFAULT_SPORTS from '../data/json/sports.json';
 import DEFAULT_SPORT_EVENTS from '../data/json/sport-events.json';
 import DEFAULT_SPORT_FACILITIES from '../data/json/sport-facilities.json';
-import { decryptPasswordAtRest, encryptPasswordAtRest } from './authCrypto';
+import DEFAULT_COACHING_PACKAGES from '../data/json/coaching-packages.json';
+import DEFAULT_COACHING_WEEKLY_SESSIONS from '../data/json/coaching-weekly-sessions.json';
+import {
+  COACHING_REFUND_EXTENSION_DAYS,
+  computePackageExpiry,
+  generateWeeklySessionDates,
+  singaporeDateOf,
+} from './coaching';
+import { applyDataMigrations } from './dataMigrations';
 
 export type PackageRow = {
   id: string;
@@ -28,7 +36,7 @@ export type SportEventRow = {
   descriptionTemplate: string;
   imageKey: 'facility' | 'academy' | 'coach' | 'gear';
   icon: 'calendar' | 'academy' | 'coach' | 'shop';
-  actionTarget: 'facility-select' | 'schedule';
+  actionTarget: 'facility-select' | 'schedule' | 'coach-packages';
   enabled: boolean;
   sortOrder: number;
 };
@@ -132,6 +140,7 @@ type BookingInput = {
   facilityImageKey?: SportFacilityRow['imageKey'] | null;
   facilityTag?: string | null;
   lockToken?: string | null;
+  stripePaymentIntentId?: string | null;
 };
 
 export type ConfigValueType = 'STRING' | 'INTEGER' | 'DECIMAL' | 'BOOLEAN' | 'JSON';
@@ -227,6 +236,120 @@ export class FacilityUnavailableError extends Error {
   }
 }
 
+export class PaymentAlreadyUsedError extends Error {
+  constructor() {
+    super('This payment has already been used for another booking.');
+    this.name = 'PaymentAlreadyUsedError';
+  }
+}
+
+export type CoachingPackageRow = {
+  id: string;
+  sportId: SportRow['id'];
+  title: string;
+  sessionCount: number;
+  price: number;
+  validityWeeks: number;
+  description: string;
+  enabled: boolean;
+  sortOrder: number;
+};
+
+type CoachingWeeklySessionSeed = {
+  id: string;
+  sportId: SportRow['id'];
+  dayOfWeek: number;
+  startTime: string;
+  endTime: string;
+  title: string;
+  location: string;
+  spots: number;
+  enabled: boolean;
+};
+
+export type CoachingPurchaseRow = {
+  id: string;
+  sportId: SportRow['id'];
+  packageId: string;
+  packageTitle: string;
+  totalSessions: number;
+  remainingSessions: number;
+  amountPaid: number;
+  receiptId: string;
+  purchasedAt: string;
+  expiresAt: string;
+};
+
+export type CoachingBalance = {
+  remainingSessions: number;
+  purchases: CoachingPurchaseRow[];
+};
+
+export type CoachingSessionRow = {
+  id: string;
+  sportId: SportRow['id'];
+  sessionDate: string;
+  startTime: string;
+  endTime: string;
+  title: string;
+  location: string;
+  spots: number;
+  bookedCount: number;
+  spotsLeft: number;
+  bookedByMe: boolean;
+};
+
+export type CoachingBookingRow = {
+  bookingId: string;
+  sessionId: string;
+  sportId: SportRow['id'];
+  sessionDate: string;
+  startTime: string;
+  endTime: string;
+  title: string;
+  location: string;
+  status: 'booked' | 'cancelled';
+  sessionStatus: 'scheduled' | 'cancelled';
+  bookedAt: string;
+};
+
+export type CoachingBookingFailure = 'not-found' | 'not-available' | 'full' | 'already-booked' | 'no-credits';
+
+export class CoachingBookingError extends Error {
+  constructor(readonly reason: CoachingBookingFailure) {
+    super(`Coaching session booking failed: ${reason}`);
+    this.name = 'CoachingBookingError';
+  }
+}
+
+export class CoachingPackageUnavailableError extends Error {
+  constructor() {
+    super('The selected coaching package does not exist or is disabled.');
+    this.name = 'CoachingPackageUnavailableError';
+  }
+}
+
+const STRIPE_PAYMENT_UNIQUE_INDEX = 'idx_bookings_stripe_payment_intent_unique';
+
+// Postgres reports a unique-index clash as code 23505 with the index name as `constraint`.
+export function isStripePaymentReuseViolation(error: unknown): boolean {
+  if (typeof error !== 'object' || error === null) {
+    return false;
+  }
+  const { code, constraint } = error as { code?: unknown; constraint?: unknown };
+  return code === '23505' && constraint === STRIPE_PAYMENT_UNIQUE_INDEX;
+}
+
+const COACHING_BOOKING_UNIQUE_INDEX = 'idx_coaching_session_bookings_active_unique';
+
+function isUniqueViolationOf(error: unknown, constraintName: string): boolean {
+  if (typeof error !== 'object' || error === null) {
+    return false;
+  }
+  const { code, constraint } = error as { code?: unknown; constraint?: unknown };
+  return code === '23505' && constraint === constraintName;
+}
+
 const DATABASE_URL = process.env.DATABASE_URL ?? '';
 const DATABASE_SSL = (process.env.DATABASE_SSL ?? 'true').toLowerCase() !== 'false';
 const DATABASE_CONNECTION_TIMEOUT_MS = Number(process.env.DATABASE_CONNECTION_TIMEOUT_MS ?? '5000');
@@ -241,7 +364,8 @@ const pool = USE_DATABASE
       connectionTimeoutMillis: Number.isFinite(DATABASE_CONNECTION_TIMEOUT_MS) ? DATABASE_CONNECTION_TIMEOUT_MS : 5000,
       idleTimeoutMillis: 30000,
       options: '-c timezone=Asia/Singapore',
-      ssl: DATABASE_SSL ? { rejectUnauthorized: false } : undefined,
+      // Always check the database's certificate, so nobody on the network path can pose as it.
+      ssl: DATABASE_SSL ? { rejectUnauthorized: true } : undefined,
     })
   : null;
 
@@ -256,6 +380,8 @@ const DEFAULT_PACKAGES: PackageRow[] = [
 const DEFAULT_SPORT_ROWS = DEFAULT_SPORTS as SportRow[];
 const DEFAULT_SPORT_EVENT_ROWS = DEFAULT_SPORT_EVENTS as SportEventRow[];
 const DEFAULT_SPORT_FACILITY_TEMPLATE_ROWS = DEFAULT_SPORT_FACILITIES as SportFacilityTemplateRow[];
+const DEFAULT_COACHING_PACKAGE_ROWS = DEFAULT_COACHING_PACKAGES as CoachingPackageRow[];
+const DEFAULT_COACHING_WEEKLY_SESSION_ROWS = DEFAULT_COACHING_WEEKLY_SESSIONS as CoachingWeeklySessionSeed[];
 const SLOT_INTERVAL_MINUTES = 30;
 const RESERVATION_TTL_MINUTES = 10; // fallback if DB config unavailable
 
@@ -408,15 +534,7 @@ async function seedPackages(client: PoolClient): Promise<void> {
   await client.query(
     `INSERT INTO packages (id, label, price, per_label, sort_order, created_by)
      VALUES ${placeholders.join(', ')}
-     ON CONFLICT (id)
-     DO UPDATE SET
-       label = EXCLUDED.label,
-       price = EXCLUDED.price,
-       per_label = EXCLUDED.per_label,
-       sort_order = EXCLUDED.sort_order,
-       updated_at = NOW(),
-       updated_by = EXCLUDED.created_by,
-       deleted_at = NULL`,
+     ON CONFLICT (id) DO NOTHING`,
     values
   );
 }
@@ -432,16 +550,7 @@ async function seedSports(client: PoolClient): Promise<void> {
   await client.query(
     `INSERT INTO sports (id, label, image_key, banner_key, enabled, sort_order, created_by)
      VALUES ${placeholders.join(', ')}
-     ON CONFLICT (id)
-     DO UPDATE SET
-       label = EXCLUDED.label,
-       image_key = EXCLUDED.image_key,
-       banner_key = EXCLUDED.banner_key,
-       enabled = EXCLUDED.enabled,
-       sort_order = EXCLUDED.sort_order,
-       updated_at = NOW(),
-       updated_by = EXCLUDED.created_by,
-       deleted_at = NULL`,
+     ON CONFLICT (id) DO NOTHING`,
     values
   );
 }
@@ -468,19 +577,7 @@ async function seedSportEvents(client: PoolClient): Promise<void> {
   await client.query(
     `INSERT INTO sport_events (id, sport_id, title_template, description_template, image_key, icon, action_target, enabled, sort_order, created_by)
      VALUES ${placeholders.join(', ')}
-     ON CONFLICT (id)
-     DO UPDATE SET
-       sport_id = EXCLUDED.sport_id,
-       title_template = EXCLUDED.title_template,
-       description_template = EXCLUDED.description_template,
-       image_key = EXCLUDED.image_key,
-       icon = EXCLUDED.icon,
-       action_target = EXCLUDED.action_target,
-       enabled = EXCLUDED.enabled,
-       sort_order = EXCLUDED.sort_order,
-       updated_at = NOW(),
-       updated_by = EXCLUDED.created_by,
-       deleted_at = NULL`,
+     ON CONFLICT (id) DO NOTHING`,
     values
   );
 }
@@ -541,23 +638,7 @@ async function seedSportFacilities(client: PoolClient): Promise<void> {
        created_by
      )
      VALUES ${placeholders.join(', ')}
-     ON CONFLICT (id)
-     DO UPDATE SET
-       sport_id = EXCLUDED.sport_id,
-       facility_code = EXCLUDED.facility_code,
-       title = EXCLUDED.title,
-       price_label = EXCLUDED.price_label,
-       tag_label = EXCLUDED.tag_label,
-        address = EXCLUDED.address,
-        map_location_url = EXCLUDED.map_location_url,
-       image_key = EXCLUDED.image_key,
-       icon = EXCLUDED.icon,
-       action_target = EXCLUDED.action_target,
-        enabled = EXCLUDED.enabled,
-       sort_order = EXCLUDED.sort_order,
-       updated_at = NOW(),
-       updated_by = EXCLUDED.created_by,
-       deleted_at = NULL`,
+     ON CONFLICT (id) DO NOTHING`,
     values
   );
 }
@@ -574,7 +655,91 @@ async function seedSystemConfigs(client: PoolClient): Promise<void> {
   }
 }
 
-async function seedFacilityWeekdayConfigurations(client: PoolClient, overwriteExisting: boolean): Promise<void> {
+async function seedCoachingPackages(client: PoolClient): Promise<void> {
+  if (DEFAULT_COACHING_PACKAGE_ROWS.length > 0) {
+    const values: unknown[] = [];
+    const placeholders = DEFAULT_COACHING_PACKAGE_ROWS.map((pkg, index) => {
+      const base = index * 10;
+      values.push(
+        pkg.id,
+        pkg.sportId,
+        pkg.title,
+        pkg.sessionCount,
+        pkg.price,
+        pkg.validityWeeks,
+        pkg.description,
+        pkg.enabled,
+        pkg.sortOrder,
+        'seed'
+      );
+      return `($${base + 1}, $${base + 2}, $${base + 3}, $${base + 4}, $${base + 5}, $${base + 6}, $${base + 7}, $${base + 8}, $${base + 9}, $${base + 10})`;
+    });
+
+    await client.query(
+      `INSERT INTO coaching_packages (id, sport_id, title, session_count, price, validity_weeks, description, enabled, sort_order, created_by)
+       VALUES ${placeholders.join(', ')}
+       ON CONFLICT (id) DO NOTHING`,
+      values
+    );
+  }
+}
+
+async function seedCoachingSessionTemplates(client: PoolClient): Promise<void> {
+  if (DEFAULT_COACHING_WEEKLY_SESSION_ROWS.length > 0) {
+    const values: unknown[] = [];
+    const placeholders = DEFAULT_COACHING_WEEKLY_SESSION_ROWS.map((template, index) => {
+      const base = index * 10;
+      values.push(
+        template.id,
+        template.sportId,
+        template.dayOfWeek,
+        template.startTime,
+        template.endTime,
+        template.title,
+        template.location,
+        template.spots,
+        template.enabled,
+        'seed'
+      );
+      return `($${base + 1}, $${base + 2}, $${base + 3}, $${base + 4}, $${base + 5}, $${base + 6}, $${base + 7}, $${base + 8}, $${base + 9}, $${base + 10})`;
+    });
+
+    await client.query(
+      `INSERT INTO coaching_session_templates (id, sport_id, day_of_week, start_time, end_time, title, location, spots, enabled, created_by)
+       VALUES ${placeholders.join(', ')}
+       ON CONFLICT (id) DO NOTHING`,
+      values
+    );
+  }
+}
+
+// Creates the next few weeks of sessions from the enabled weekly templates. Safe to run on every
+// read: the unique key (sport, date, start time, location) skips sessions that already exist.
+async function ensureUpcomingCoachingSessions(client: PoolClient, sportId?: SportRow['id']): Promise<void> {
+  const templates = await client.query<{ id: string; dayOfWeek: number }>(
+    `SELECT id, day_of_week AS "dayOfWeek"
+     FROM coaching_session_templates
+     WHERE enabled AND ($1::text IS NULL OR sport_id = $1)`,
+    [sportId ?? null]
+  );
+
+  const dates = generateWeeklySessionDates(templates.rows, singaporeDateOf(new Date()));
+  if (dates.length === 0) {
+    return;
+  }
+
+  await client.query(
+    `INSERT INTO coaching_sessions (template_id, sport_id, session_date, start_time, end_time, title, location, spots, created_by)
+     SELECT template.id, template.sport_id, generated.session_date, template.start_time, template.end_time,
+            template.title, template.location, template.spots, 'system'
+     FROM unnest($1::text[], $2::date[]) AS generated(template_id, session_date)
+     JOIN coaching_session_templates AS template ON template.id = generated.template_id
+     ON CONFLICT (sport_id, session_date, start_time, location) DO NOTHING`,
+    [dates.map((d) => d.templateId), dates.map((d) => d.sessionDate)]
+  );
+}
+
+async function seedFacilityWeekdayConfigurations(client: PoolClient): Promise<void> {
   for (const facility of DEFAULT_SPORT_FACILITY_TEMPLATE_ROWS) {
     for (const weekdayName of WEEKDAY_NAMES) {
       const window = DEFAULT_WEEKDAY_SLOT_WINDOWS[weekdayName];
@@ -589,19 +754,14 @@ async function seedFacilityWeekdayConfigurations(client: PoolClient, overwriteEx
            updated_by
          ) VALUES ($1, $2, $3, $4::time, $5::time, 'seed', 'seed')
          ON CONFLICT (sport_id, facility_code, weekday_name)
-         ${overwriteExisting ? `DO UPDATE SET
-           slot_start_time = EXCLUDED.slot_start_time,
-           slot_end_time = EXCLUDED.slot_end_time,
-           updated_at = NOW(),
-           updated_by = 'seed',
-           deleted_at = NULL` : 'DO NOTHING'}`,
+         DO NOTHING`,
         [facility.sportId, facility.code, weekdayName, window.startTime, window.endTime]
       );
     }
   }
 }
 
-async function seedAvailabilityExceptions2026(client: PoolClient, overwriteExisting: boolean): Promise<void> {
+async function seedAvailabilityExceptions2026(client: PoolClient): Promise<void> {
   for (const facility of EXCEPTION_FACILITIES_2026) {
     for (const exceptionDate of availabilityExceptionDates2026()) {
       await client.query(
@@ -609,19 +769,14 @@ async function seedAvailabilityExceptions2026(client: PoolClient, overwriteExist
            sport_id, facility_code, exception_date, slot_start_time, slot_end_time, created_by, updated_by
          ) VALUES ($1, $2, $3::date, '08:00'::time, '19:00'::time, 'seed', 'seed')
          ON CONFLICT (sport_id, facility_code, exception_date)
-         ${overwriteExisting ? `DO UPDATE SET
-           slot_start_time = EXCLUDED.slot_start_time,
-           slot_end_time = EXCLUDED.slot_end_time,
-           updated_at = NOW(),
-           updated_by = 'seed',
-           deleted_at = NULL` : 'DO NOTHING'}`,
+         DO NOTHING`,
         [facility.sportId, facility.facilityCode, exceptionDate]
       );
     }
   }
 }
 
-async function seedRecurringAcademyBlocks2026(client: PoolClient, overwriteExisting: boolean): Promise<void> {
+async function seedRecurringAcademyBlocks2026(client: PoolClient): Promise<void> {
   for (const block of ACADEMY_BLOCKS_2026) {
     await client.query(
       `INSERT INTO slot_block_rules (
@@ -630,11 +785,7 @@ async function seedRecurringAcademyBlocks2026(client: PoolClient, overwriteExist
        ) VALUES ('recurring', $1, $2, '2026-01-01'::date, '2026-12-31'::date, $3, $4::time, $5::time, $6, 'seed', 'seed')
        ON CONFLICT (sport_id, facility_code, valid_from, valid_to, weekday_name, slot_start_time, slot_end_time)
        WHERE rule_type = 'recurring'
-       ${overwriteExisting ? `DO UPDATE SET
-         reason = EXCLUDED.reason,
-         updated_at = NOW(),
-         updated_by = 'seed',
-         deleted_at = NULL` : 'DO NOTHING'}`,
+       DO NOTHING`,
       [block.sportId, block.facilityCode, block.weekdayName, block.startTime, block.endTime, ACADEMY_BLOCK_REASON]
     );
   }
@@ -773,15 +924,6 @@ async function ensureSchema(client: PoolClient): Promise<void> {
   `);
 
   await client.query(`
-    UPDATE sports
-    SET enabled = FALSE,
-        updated_at = NOW(),
-        updated_by = 'system'
-    WHERE id IN ('futsal', 'sepak-takraw', 'tennis', 'table-tennis')
-      AND enabled IS DISTINCT FROM FALSE
-  `);
-
-  await client.query(`
     ALTER TABLE sports
     ALTER COLUMN banner_key SET NOT NULL
   `);
@@ -840,6 +982,12 @@ async function ensureSchema(client: PoolClient): Promise<void> {
     WHERE enabled IS NULL
   `);
   await client.query('ALTER TABLE sport_events ALTER COLUMN enabled SET NOT NULL');
+  await client.query('ALTER TABLE sport_events DROP CONSTRAINT IF EXISTS sport_events_action_target_check');
+  await client.query(`
+    ALTER TABLE sport_events
+    ADD CONSTRAINT sport_events_action_target_check
+    CHECK (action_target IN ('facility-select', 'schedule', 'coach-packages'))
+  `);
 
   await client.query(`
     CREATE TABLE IF NOT EXISTS sport_facilities (
@@ -865,22 +1013,17 @@ async function ensureSchema(client: PoolClient): Promise<void> {
     )
   `);
 
-  await client.query(`
-    UPDATE sport_facilities
-    SET tag_label = 'Book Now'
-    WHERE tag_label = 'Per Hour'
-  `);
-
   await client.query('ALTER TABLE sport_facilities ADD COLUMN IF NOT EXISTS address TEXT');
   await client.query('ALTER TABLE sport_facilities ADD COLUMN IF NOT EXISTS map_location_url TEXT');
   await client.query('ALTER TABLE sport_facilities ADD COLUMN IF NOT EXISTS enabled BOOLEAN');
 
+  // Only fills a missing address (very old databases) so the NOT NULL below can apply;
+  // an address someone has set is left alone.
   await client.query(`
     UPDATE sport_facilities
-    SET address = 'SportyGo @ DPS International School, 36 Aroozoo Ave, Singapore 539842',
-        map_location_url = 'https://maps.app.goo.gl/BWiBvM8FU3meALV27'
-    WHERE address IS DISTINCT FROM 'SportyGo @ DPS International School, 36 Aroozoo Ave, Singapore 539842'
-       OR map_location_url IS DISTINCT FROM 'https://maps.app.goo.gl/BWiBvM8FU3meALV27'
+    SET address = COALESCE(address, 'SportyGo @ DPS International School, 36 Aroozoo Ave, Singapore 539842'),
+        map_location_url = COALESCE(map_location_url, 'https://maps.app.goo.gl/BWiBvM8FU3meALV27')
+    WHERE address IS NULL OR map_location_url IS NULL
   `);
 
   await client.query('ALTER TABLE sport_facilities ALTER COLUMN address SET NOT NULL');
@@ -910,24 +1053,6 @@ async function ensureSchema(client: PoolClient): Promise<void> {
     ALTER TABLE sport_facilities
     ADD CONSTRAINT sport_facilities_image_key_check
     CHECK (image_key IN ('bowling-lane', 'nets-2', 'nets-3', 'nets-4', 'indoor-court', 'outdoor-field', 'pb-indoor-court', 'pb-outdoor-court'))
-  `);
-
-  await client.query(`
-    UPDATE sport_facilities
-    SET image_key = CASE facility_code
-          WHEN 'indoor-court' THEN 'pb-indoor-court'
-          WHEN 'outdoor-field' THEN 'pb-outdoor-court'
-          ELSE image_key
-        END,
-        price_label = CASE facility_code
-          WHEN 'indoor-court' THEN 'S$30'
-          WHEN 'outdoor-field' THEN 'S$25'
-          ELSE price_label
-        END,
-        updated_at = NOW(),
-        updated_by = 'system'
-    WHERE sport_id = 'pickleball'
-      AND facility_code IN ('indoor-court', 'outdoor-field')
   `);
 
   await client.query(`
@@ -993,7 +1118,7 @@ async function ensureSchema(client: PoolClient): Promise<void> {
     CREATE UNIQUE INDEX IF NOT EXISTS idx_slot_weekday_configurations_facility_day_unique
     ON slot_weekday_configurations (sport_id, facility_code, weekday_name)
   `);
-  await seedFacilityWeekdayConfigurations(client, false);
+  await seedFacilityWeekdayConfigurations(client);
 
   await client.query(`
     CREATE TABLE IF NOT EXISTS slot_availability_exceptions (
@@ -1105,8 +1230,8 @@ async function ensureSchema(client: PoolClient): Promise<void> {
   `);
   await client.query('DROP TABLE IF EXISTS slot_recurring_blocks');
   await client.query('DROP TABLE IF EXISTS admin_slot_blocks');
-  await seedAvailabilityExceptions2026(client, false);
-  await seedRecurringAcademyBlocks2026(client, false);
+  await seedAvailabilityExceptions2026(client);
+  await seedRecurringAcademyBlocks2026(client);
 
   await client.query(`
     CREATE INDEX IF NOT EXISTS idx_slots_slot_date_booked
@@ -1157,6 +1282,14 @@ async function ensureSchema(client: PoolClient): Promise<void> {
   await client.query('ALTER TABLE bookings ADD COLUMN IF NOT EXISTS facility_tag TEXT NULL');
   await client.query('ALTER TABLE bookings ADD COLUMN IF NOT EXISTS sport_id TEXT NULL');
   await client.query('ALTER TABLE bookings ADD COLUMN IF NOT EXISTS facility_code TEXT NULL');
+  await client.query('ALTER TABLE bookings ADD COLUMN IF NOT EXISTS stripe_payment_intent_id TEXT NULL');
+  // One Stripe payment can confirm only one booking. Rows without a payment id (older bookings,
+  // Mock Pay) are not covered by the index.
+  await client.query(`
+    CREATE UNIQUE INDEX IF NOT EXISTS ${STRIPE_PAYMENT_UNIQUE_INDEX}
+    ON bookings (stripe_payment_intent_id)
+    WHERE stripe_payment_intent_id IS NOT NULL
+  `);
   await client.query('ALTER TABLE bookings DROP CONSTRAINT IF EXISTS bookings_status_check');
   await client.query(`
     ALTER TABLE bookings
@@ -1259,44 +1392,131 @@ async function ensureSchema(client: PoolClient): Promise<void> {
       ('APP', 'TERMS_VERSION')
     )
   `);
+
+  await ensureCoachingSchema(client);
+  await applyDataMigrations(client);
 }
 
-async function ensureInitialAdminUser(client: PoolClient): Promise<void> {
-  const email = 'dharmichand@sportygo.com.sg';
-  const passwordEncrypted = await encryptPasswordAtRest('Admin@123');
+// Coaching tables deliberately have no foreign key to `sports`: if a sport row were ever deleted,
+// a cascade would wipe customers' purchases and bookings.
+async function ensureCoachingSchema(client: PoolClient): Promise<void> {
+  await client.query(`
+    CREATE TABLE IF NOT EXISTS coaching_packages (
+      id TEXT PRIMARY KEY,
+      sport_id TEXT NOT NULL,
+      title TEXT NOT NULL,
+      session_count INTEGER NOT NULL CHECK (session_count > 0),
+      price NUMERIC(12,2) NOT NULL CHECK (price > 0),
+      validity_weeks INTEGER NOT NULL CHECK (validity_weeks > 0),
+      description TEXT NOT NULL DEFAULT '',
+      enabled BOOLEAN NOT NULL DEFAULT TRUE,
+      sort_order INTEGER NOT NULL DEFAULT 0,
+      created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+      updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+      created_by TEXT NOT NULL DEFAULT 'system',
+      updated_by TEXT NOT NULL DEFAULT 'system'
+    )
+  `);
 
-  const existingResult = await client.query<{ password_encrypted: string }>(
-    `SELECT password_encrypted
-     FROM users
-     WHERE email = $1
-     LIMIT 1`,
-    [email]
-  );
-  let repairPassword = existingResult.rowCount === 0;
-  if (existingResult.rows[0]?.password_encrypted) {
-    try {
-      await decryptPasswordAtRest(existingResult.rows[0].password_encrypted);
-    } catch {
-      repairPassword = true;
-    }
-  }
+  await client.query(`
+    CREATE TABLE IF NOT EXISTS coaching_session_templates (
+      id TEXT PRIMARY KEY,
+      sport_id TEXT NOT NULL,
+      day_of_week SMALLINT NOT NULL CHECK (day_of_week BETWEEN 0 AND 6),
+      start_time TIME NOT NULL,
+      end_time TIME NOT NULL,
+      title TEXT NOT NULL,
+      location TEXT NOT NULL,
+      spots INTEGER NOT NULL CHECK (spots BETWEEN 1 AND 50),
+      enabled BOOLEAN NOT NULL DEFAULT TRUE,
+      created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+      updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+      created_by TEXT NOT NULL DEFAULT 'system',
+      updated_by TEXT NOT NULL DEFAULT 'system',
+      CHECK (end_time > start_time)
+    )
+  `);
 
-  await client.query(
-    `INSERT INTO users (
-       email, full_name, mobile_number, password_encrypted, auth_provider, role, created_by, updated_by
-     ) VALUES ($1, $2, $3, $4, 'password', 'admin', 'system', 'system')
-     ON CONFLICT (email)
-     DO UPDATE SET
-       role = 'admin',
-       password_encrypted = CASE
-         WHEN $5::boolean THEN EXCLUDED.password_encrypted
-         ELSE users.password_encrypted
-       END,
-       updated_at = NOW(),
-       updated_by = 'system',
-       deleted_at = NULL`,
-    [email, 'Dharmichand', '+6500000000', passwordEncrypted, repairPassword]
-  );
+  await client.query(`
+    CREATE TABLE IF NOT EXISTS coaching_sessions (
+      id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+      template_id TEXT NULL REFERENCES coaching_session_templates(id) ON DELETE SET NULL,
+      sport_id TEXT NOT NULL,
+      session_date DATE NOT NULL,
+      start_time TIME NOT NULL,
+      end_time TIME NOT NULL,
+      title TEXT NOT NULL,
+      location TEXT NOT NULL,
+      spots INTEGER NOT NULL CHECK (spots BETWEEN 1 AND 50),
+      status TEXT NOT NULL DEFAULT 'scheduled' CHECK (status IN ('scheduled', 'cancelled')),
+      cancelled_at TIMESTAMPTZ NULL,
+      created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+      updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+      created_by TEXT NOT NULL DEFAULT 'system',
+      updated_by TEXT NOT NULL DEFAULT 'system',
+      CHECK (end_time > start_time),
+      UNIQUE (sport_id, session_date, start_time, location)
+    )
+  `);
+
+  await client.query(`
+    CREATE INDEX IF NOT EXISTS idx_coaching_sessions_upcoming
+    ON coaching_sessions (sport_id, session_date, start_time)
+  `);
+
+  await client.query(`
+    CREATE TABLE IF NOT EXISTS coaching_purchases (
+      id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+      customer_email TEXT NOT NULL,
+      sport_id TEXT NOT NULL,
+      package_id TEXT NOT NULL REFERENCES coaching_packages(id),
+      package_title TEXT NOT NULL,
+      total_sessions INTEGER NOT NULL CHECK (total_sessions > 0),
+      remaining_sessions INTEGER NOT NULL,
+      amount_paid NUMERIC(12,2) NOT NULL CHECK (amount_paid >= 0),
+      receipt_id TEXT NOT NULL UNIQUE,
+      stripe_payment_intent_id TEXT NOT NULL,
+      purchased_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+      expires_at TIMESTAMPTZ NOT NULL,
+      created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+      updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+      created_by TEXT NOT NULL DEFAULT 'system',
+      updated_by TEXT NOT NULL DEFAULT 'system',
+      CONSTRAINT coaching_purchases_remaining_check CHECK (remaining_sessions >= 0 AND remaining_sessions <= total_sessions),
+      CONSTRAINT coaching_purchases_stripe_intent_unique UNIQUE (stripe_payment_intent_id)
+    )
+  `);
+
+  await client.query(`
+    CREATE INDEX IF NOT EXISTS idx_coaching_purchases_customer
+    ON coaching_purchases (customer_email, sport_id, expires_at)
+  `);
+
+  await client.query(`
+    CREATE TABLE IF NOT EXISTS coaching_session_bookings (
+      id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+      session_id UUID NOT NULL REFERENCES coaching_sessions(id),
+      purchase_id UUID NOT NULL REFERENCES coaching_purchases(id),
+      customer_email TEXT NOT NULL,
+      status TEXT NOT NULL DEFAULT 'booked' CHECK (status IN ('booked', 'cancelled')),
+      cancelled_at TIMESTAMPTZ NULL,
+      created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+      updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+      created_by TEXT NOT NULL DEFAULT 'system',
+      updated_by TEXT NOT NULL DEFAULT 'system'
+    )
+  `);
+
+  await client.query(`
+    CREATE UNIQUE INDEX IF NOT EXISTS ${COACHING_BOOKING_UNIQUE_INDEX}
+    ON coaching_session_bookings (session_id, customer_email)
+    WHERE status = 'booked'
+  `);
+
+  await client.query(`
+    CREATE INDEX IF NOT EXISTS idx_coaching_session_bookings_customer
+    ON coaching_session_bookings (customer_email, status)
+  `);
 }
 
 export async function ensureDatabaseReady(): Promise<void> {
@@ -1310,7 +1530,6 @@ export async function ensureDatabaseReady(): Promise<void> {
       try {
         await client.query('BEGIN');
         await ensureSchema(client);
-        await ensureInitialAdminUser(client);
         await client.query('COMMIT');
       } catch (error) {
         await client.query('ROLLBACK');
@@ -1906,6 +2125,17 @@ export async function saveBooking(input: BookingInput): Promise<void> {
       if (facilityResult.rowCount === 0) {
         throw new FacilityUnavailableError();
       }
+      if (input.stripePaymentIntentId) {
+        const usedResult = await client.query(
+          `SELECT 1 FROM bookings
+           WHERE stripe_payment_intent_id = $1
+           LIMIT 1`,
+          [input.stripePaymentIntentId]
+        );
+        if ((usedResult.rowCount ?? 0) > 0) {
+          throw new PaymentAlreadyUsedError();
+        }
+      }
       if (isPastOrCurrentSlot(input.selectedDate, input.selectedTime, currentDateTime)) {
         // Allow booking to proceed if the user holds a valid reservation (locked before slot became past)
         let bypassPastCheck = false;
@@ -2015,8 +2245,9 @@ export async function saveBooking(input: BookingInput): Promise<void> {
            status,
            payment_method,
            created_by,
-           updated_by
-         ) VALUES ($1, $2, $3, $4, $5::time, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19)`,
+           updated_by,
+           stripe_payment_intent_id
+         ) VALUES ($1, $2, $3, $4, $5::time, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20)`,
         [
           input.bookingType,
           input.sportId ?? null,
@@ -2037,6 +2268,7 @@ export async function saveBooking(input: BookingInput): Promise<void> {
           input.paymentMethod,
           customerEmail,
           customerEmail,
+          input.stripePaymentIntentId ?? null,
         ]
       );
 
@@ -2051,7 +2283,8 @@ export async function saveBooking(input: BookingInput): Promise<void> {
       await client.query('COMMIT');
     } catch (error) {
       await client.query('ROLLBACK');
-      throw error;
+      // Two requests with the same payment can both pass the check above; the unique index stops the second.
+      throw isStripePaymentReuseViolation(error) ? new PaymentAlreadyUsedError() : error;
     }
   });
 }
@@ -2365,6 +2598,40 @@ export async function findUserByEmail(email: string): Promise<UserAuthRow | null
   );
 
   return rows[0] ?? null;
+}
+
+export type PromoteAdminResult = 'promoted' | 'already-admin' | 'not-found';
+
+const ADMIN_EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+
+// Admins are never created by code: a person registers normally, then an operator runs
+// `npm run admin:promote -- <email>`. Only the role changes; the password is never touched.
+export async function promoteUserToAdmin(email: string): Promise<PromoteAdminResult> {
+  const normalizedEmail = email.trim().toLowerCase();
+  if (!ADMIN_EMAIL_RE.test(normalizedEmail) || normalizedEmail.length > 254) {
+    throw new Error('A valid email address is required.');
+  }
+
+  const user = await findUserByEmail(normalizedEmail);
+  if (!user) {
+    return 'not-found';
+  }
+  if (user.role === 'admin') {
+    return 'already-admin';
+  }
+
+  const rows = await query<{ email: string }>(
+    `UPDATE users
+     SET role = 'admin',
+         updated_at = NOW(),
+         updated_by = 'admin:promote-script'
+     WHERE deleted_at IS NULL
+       AND LOWER(email) = LOWER($1)
+     RETURNING email`,
+    [normalizedEmail]
+  );
+
+  return rows.length > 0 ? 'promoted' : 'not-found';
 }
 
 export async function listAllUsersForAdmin(): Promise<AdminUserRow[]> {
@@ -2761,21 +3028,21 @@ export async function seedDatabase(): Promise<void> {
   await withDatabaseClient(async (client) => {
     await client.query('BEGIN');
     try {
+      // The database is the source of truth: seeding only adds rows that are missing, so it fills
+      // an empty database and leaves existing data untouched. Change existing data with a
+      // migration in dataMigrations.ts.
       await ensureSchema(client);
-      await ensureInitialAdminUser(client);
-      await client.query('DELETE FROM sport_facilities');
-      await client.query('DELETE FROM sport_events');
-      await client.query('DELETE FROM sports');
       await seedPackages(client);
       await seedSports(client);
       await seedSportEvents(client);
       await seedSportFacilities(client);
       await seedSystemConfigs(client);
-      await seedFacilityWeekdayConfigurations(client, true);
-      await client.query("DELETE FROM slot_availability_exceptions WHERE created_by = 'seed'");
-      await client.query("DELETE FROM slot_block_rules WHERE rule_type = 'recurring' AND created_by = 'seed'");
-      await seedAvailabilityExceptions2026(client, true);
-      await seedRecurringAcademyBlocks2026(client, true);
+      await seedFacilityWeekdayConfigurations(client);
+      await seedAvailabilityExceptions2026(client);
+      await seedRecurringAcademyBlocks2026(client);
+      await seedCoachingPackages(client);
+      await seedCoachingSessionTemplates(client);
+      await ensureUpcomingCoachingSessions(client);
 
       await client.query('COMMIT');
     } catch (error) {
@@ -2783,26 +3050,6 @@ export async function seedDatabase(): Promise<void> {
       throw error;
     }
   });
-}
-
-export async function resetDatabaseAndSeed(): Promise<void> {
-  if (!pool) {
-    return;
-  }
-
-  await withDatabaseClient(async (client) => {
-    await client.query('BEGIN');
-    try {
-      await ensureSchema(client);
-      await client.query('TRUNCATE TABLE bookings, slots, users, packages, sports, sport_events, sport_facilities, slot_weekday_configurations, slot_availability_exceptions, slot_block_rules RESTART IDENTITY CASCADE');
-      await client.query('COMMIT');
-    } catch (error) {
-      await client.query('ROLLBACK');
-      throw error;
-    }
-  });
-
-  await seedDatabase();
 }
 
 // ─── System Config Service ────────────────────────────────────
@@ -2982,5 +3229,350 @@ export async function releaseReservation(lockToken: string, customerEmail: strin
        AND LOWER(BTRIM(customer_email)) = $2
        AND status = 'pending'`,
     [lockToken, customerEmail]
+  );
+}
+
+// ─── Coaching packages and sessions ───────────────────────────
+
+const COACHING_PACKAGE_COLUMNS = `
+  id,
+  sport_id AS "sportId",
+  title,
+  session_count AS "sessionCount",
+  price::float8 AS price,
+  validity_weeks AS "validityWeeks",
+  description,
+  enabled,
+  sort_order AS "sortOrder"`;
+
+const COACHING_PURCHASE_COLUMNS = `
+  id,
+  sport_id AS "sportId",
+  package_id AS "packageId",
+  package_title AS "packageTitle",
+  total_sessions AS "totalSessions",
+  remaining_sessions AS "remainingSessions",
+  amount_paid::float8 AS "amountPaid",
+  receipt_id AS "receiptId",
+  to_char(purchased_at AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.MS"Z"') AS "purchasedAt",
+  to_char(expires_at AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.MS"Z"') AS "expiresAt"`;
+
+function normalizeEmail(email: string): string {
+  return email.trim().toLowerCase();
+}
+
+async function inTransaction<T>(work: (client: PoolClient) => Promise<T>): Promise<T> {
+  return withDatabaseClient(async (client) => {
+    await client.query('BEGIN');
+    try {
+      const result = await work(client);
+      await client.query('COMMIT');
+      return result;
+    } catch (error) {
+      await client.query('ROLLBACK');
+      throw error;
+    }
+  });
+}
+
+export async function listCoachingPackages(sportId: SportRow['id']): Promise<CoachingPackageRow[]> {
+  if (!pool) {
+    return DEFAULT_COACHING_PACKAGE_ROWS.filter((pkg) => pkg.sportId === sportId && pkg.enabled);
+  }
+
+  return query<CoachingPackageRow>(
+    `SELECT ${COACHING_PACKAGE_COLUMNS}
+     FROM coaching_packages
+     WHERE sport_id = $1 AND enabled
+     ORDER BY sort_order, id`,
+    [sportId]
+  );
+}
+
+export async function findCoachingPackage(packageId: string): Promise<CoachingPackageRow | null> {
+  const rows = await query<CoachingPackageRow>(
+    `SELECT ${COACHING_PACKAGE_COLUMNS}
+     FROM coaching_packages
+     WHERE id = $1 AND enabled`,
+    [packageId]
+  );
+  return rows[0] ?? null;
+}
+
+// One Stripe payment credits one purchase. A retry with the same payment returns the purchase it
+// already created instead of adding the sessions again.
+export async function createCoachingPurchase(input: {
+  customerEmail: string;
+  packageId: string;
+  amountPaid: number;
+  receiptId: string;
+  stripePaymentIntentId: string;
+  purchasedAt?: Date;
+}): Promise<{ purchase: CoachingPurchaseRow; created: boolean }> {
+  assertDatabaseConfigured();
+
+  const pkg = await findCoachingPackage(input.packageId);
+  if (!pkg) {
+    throw new CoachingPackageUnavailableError();
+  }
+
+  const customerEmail = normalizeEmail(input.customerEmail);
+  const purchasedAt = input.purchasedAt ?? new Date();
+  const expiresAt = computePackageExpiry(purchasedAt, pkg.validityWeeks);
+
+  const inserted = await query<CoachingPurchaseRow>(
+    `INSERT INTO coaching_purchases
+       (customer_email, sport_id, package_id, package_title, total_sessions, remaining_sessions,
+        amount_paid, receipt_id, stripe_payment_intent_id, purchased_at, expires_at, created_by, updated_by)
+     VALUES ($1, $2, $3, $4, $5, $5, $6, $7, $8, $9, $10, $1, $1)
+     ON CONFLICT ON CONSTRAINT coaching_purchases_stripe_intent_unique DO NOTHING
+     RETURNING ${COACHING_PURCHASE_COLUMNS}`,
+    [
+      customerEmail,
+      pkg.sportId,
+      pkg.id,
+      pkg.title,
+      pkg.sessionCount,
+      input.amountPaid,
+      input.receiptId.trim(),
+      input.stripePaymentIntentId.trim(),
+      purchasedAt.toISOString(),
+      expiresAt.toISOString(),
+    ]
+  );
+
+  if (inserted[0]) {
+    return { purchase: inserted[0], created: true };
+  }
+
+  const existing = await query<CoachingPurchaseRow & { customerEmail: string }>(
+    `SELECT ${COACHING_PURCHASE_COLUMNS}, customer_email AS "customerEmail"
+     FROM coaching_purchases
+     WHERE stripe_payment_intent_id = $1`,
+    [input.stripePaymentIntentId.trim()]
+  );
+
+  const match = existing[0];
+  if (!match || match.customerEmail !== customerEmail) {
+    throw new PaymentAlreadyUsedError();
+  }
+
+  const { customerEmail: _ignored, ...purchase } = match;
+  return { purchase, created: false };
+}
+
+// Active purchases are those not yet expired; the balance is what is left on them.
+export async function getCoachingBalance(customerEmail: string, sportId: SportRow['id']): Promise<CoachingBalance> {
+  const purchases = await query<CoachingPurchaseRow>(
+    `SELECT ${COACHING_PURCHASE_COLUMNS}
+     FROM coaching_purchases
+     WHERE customer_email = $1 AND sport_id = $2 AND expires_at > NOW()
+     ORDER BY expires_at, purchased_at`,
+    [normalizeEmail(customerEmail), sportId]
+  );
+
+  return {
+    remainingSessions: purchases.reduce((sum, purchase) => sum + purchase.remainingSessions, 0),
+    purchases,
+  };
+}
+
+export async function listUpcomingCoachingSessions(sportId: SportRow['id'], customerEmail: string): Promise<CoachingSessionRow[]> {
+  const rows = await withDatabaseClient(async (client) => {
+    await ensureUpcomingCoachingSessions(client, sportId);
+    const result = await client.query<Omit<CoachingSessionRow, 'spotsLeft'>>(
+      `SELECT
+         session.id,
+         session.sport_id AS "sportId",
+         session.session_date::text AS "sessionDate",
+         to_char(session.start_time, 'HH24:MI') AS "startTime",
+         to_char(session.end_time, 'HH24:MI') AS "endTime",
+         session.title,
+         session.location,
+         session.spots,
+         COUNT(booking.id)::int AS "bookedCount",
+         COALESCE(BOOL_OR(booking.customer_email = $2), FALSE) AS "bookedByMe"
+       FROM coaching_sessions AS session
+       LEFT JOIN coaching_session_bookings AS booking
+         ON booking.session_id = session.id AND booking.status = 'booked'
+       WHERE session.sport_id = $1
+         AND session.status = 'scheduled'
+         AND (session.session_date + session.start_time) > (NOW() AT TIME ZONE 'Asia/Singapore')
+       GROUP BY session.id
+       ORDER BY session.session_date, session.start_time, session.location`,
+      [sportId, normalizeEmail(customerEmail)]
+    );
+    return result.rows;
+  });
+
+  return rows.map((row) => ({ ...row, spotsLeft: Math.max(0, row.spots - row.bookedCount) }));
+}
+
+// Takes one spot and uses one session in a single transaction. Locking the session row makes
+// concurrent bookers of the same session wait their turn, so the spot count can't be exceeded;
+// locking the purchase row stops one credit being spent twice. Locks are always taken in the
+// order session → purchase (as in cancelCoachingSessionAsAdmin), so the two can't deadlock.
+export async function bookCoachingSession(
+  sessionId: string,
+  customerEmail: string
+): Promise<{ bookingId: string; remainingSessions: number }> {
+  const email = normalizeEmail(customerEmail);
+
+  try {
+    return await inTransaction(async (client) => {
+      const sessionResult = await client.query<{
+        sport_id: SportRow['id'];
+        spots: number;
+        status: string;
+        is_future: boolean;
+      }>(
+        `SELECT sport_id, spots, status,
+                ((session_date + start_time) AT TIME ZONE 'Asia/Singapore') > NOW() AS is_future
+         FROM coaching_sessions
+         WHERE id = $1
+         FOR UPDATE`,
+        [sessionId]
+      );
+      const session = sessionResult.rows[0];
+      if (!session) throw new CoachingBookingError('not-found');
+      if (session.status !== 'scheduled' || !session.is_future) throw new CoachingBookingError('not-available');
+
+      const bookingsResult = await client.query<{ booked: number; mine: boolean }>(
+        `SELECT COUNT(*)::int AS booked, COALESCE(BOOL_OR(customer_email = $2), FALSE) AS mine
+         FROM coaching_session_bookings
+         WHERE session_id = $1 AND status = 'booked'`,
+        [sessionId, email]
+      );
+      const { booked, mine } = bookingsResult.rows[0];
+      if (mine) throw new CoachingBookingError('already-booked');
+      if (booked >= session.spots) throw new CoachingBookingError('full');
+
+      // The soonest-expiring credit that is still valid when the session starts.
+      const purchaseResult = await client.query<{ id: string }>(
+        `SELECT purchase.id
+         FROM coaching_purchases AS purchase, coaching_sessions AS session
+         WHERE session.id = $3
+           AND purchase.customer_email = $1
+           AND purchase.sport_id = $2
+           AND purchase.remaining_sessions > 0
+           AND purchase.expires_at >= ((session.session_date + session.start_time) AT TIME ZONE 'Asia/Singapore')
+         ORDER BY purchase.expires_at, purchase.purchased_at
+         LIMIT 1
+         FOR UPDATE OF purchase`,
+        [email, session.sport_id, sessionId]
+      );
+      const purchase = purchaseResult.rows[0];
+      if (!purchase) throw new CoachingBookingError('no-credits');
+
+      await client.query(
+        `UPDATE coaching_purchases
+         SET remaining_sessions = remaining_sessions - 1, updated_at = NOW(), updated_by = $2
+         WHERE id = $1`,
+        [purchase.id, email]
+      );
+
+      const inserted = await client.query<{ id: string }>(
+        `INSERT INTO coaching_session_bookings (session_id, purchase_id, customer_email, created_by, updated_by)
+         VALUES ($1, $2, $3, $3, $3)
+         RETURNING id`,
+        [sessionId, purchase.id, email]
+      );
+
+      const balance = await client.query<{ remaining: number }>(
+        `SELECT COALESCE(SUM(remaining_sessions), 0)::int AS remaining
+         FROM coaching_purchases
+         WHERE customer_email = $1 AND sport_id = $2 AND expires_at > NOW()`,
+        [email, session.sport_id]
+      );
+
+      return { bookingId: inserted.rows[0].id, remainingSessions: balance.rows[0].remaining };
+    });
+  } catch (error) {
+    // Backstop for the unique index if two requests from the same user race past the check above.
+    if (isUniqueViolationOf(error, COACHING_BOOKING_UNIQUE_INDEX)) {
+      throw new CoachingBookingError('already-booked');
+    }
+    throw error;
+  }
+}
+
+// Cancels a whole session and gives every booked player their session back. If a player's
+// package has expired by then, it is extended so the returned session can still be used.
+export async function cancelCoachingSessionAsAdmin(
+  sessionId: string,
+  adminEmail: string
+): Promise<{ alreadyCancelled: boolean; refundedBookings: number } | null> {
+  const updatedBy = normalizeEmail(adminEmail);
+
+  return inTransaction(async (client) => {
+    const sessionResult = await client.query<{ status: string }>(
+      'SELECT status FROM coaching_sessions WHERE id = $1 FOR UPDATE',
+      [sessionId]
+    );
+    const session = sessionResult.rows[0];
+    if (!session) return null;
+    if (session.status === 'cancelled') return { alreadyCancelled: true, refundedBookings: 0 };
+
+    await client.query(
+      `UPDATE coaching_sessions
+       SET status = 'cancelled', cancelled_at = NOW(), updated_at = NOW(), updated_by = $2
+       WHERE id = $1`,
+      [sessionId, updatedBy]
+    );
+
+    const cancelled = await client.query<{ purchase_id: string }>(
+      `UPDATE coaching_session_bookings
+       SET status = 'cancelled', cancelled_at = NOW(), updated_at = NOW(), updated_by = $2
+       WHERE session_id = $1 AND status = 'booked'
+       RETURNING purchase_id`,
+      [sessionId, updatedBy]
+    );
+
+    if (cancelled.rows.length > 0) {
+      await client.query(
+        `UPDATE coaching_purchases AS purchase
+         SET remaining_sessions = purchase.remaining_sessions + refund.sessions,
+             expires_at = CASE
+               WHEN purchase.expires_at <= NOW() THEN NOW() + make_interval(days => $2)
+               ELSE purchase.expires_at
+             END,
+             updated_at = NOW(),
+             updated_by = $3
+         FROM (
+           SELECT purchase_id, COUNT(*)::int AS sessions
+           FROM unnest($1::uuid[]) AS purchase_id
+           GROUP BY purchase_id
+         ) AS refund
+         WHERE purchase.id = refund.purchase_id`,
+        [cancelled.rows.map((row) => row.purchase_id), COACHING_REFUND_EXTENSION_DAYS, updatedBy]
+      );
+    }
+
+    return { alreadyCancelled: false, refundedBookings: cancelled.rows.length };
+  });
+}
+
+// Bookings for sessions from today onwards, including ones an admin has cancelled, so the
+// customer can see why a session disappeared.
+export async function listMyCoachingBookings(customerEmail: string): Promise<CoachingBookingRow[]> {
+  return query<CoachingBookingRow>(
+    `SELECT
+       booking.id AS "bookingId",
+       session.id AS "sessionId",
+       session.sport_id AS "sportId",
+       session.session_date::text AS "sessionDate",
+       to_char(session.start_time, 'HH24:MI') AS "startTime",
+       to_char(session.end_time, 'HH24:MI') AS "endTime",
+       session.title,
+       session.location,
+       booking.status,
+       session.status AS "sessionStatus",
+       to_char(booking.created_at AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.MS"Z"') AS "bookedAt"
+     FROM coaching_session_bookings AS booking
+     JOIN coaching_sessions AS session ON session.id = booking.session_id
+     WHERE booking.customer_email = $1
+       AND session.session_date >= $2::date
+     ORDER BY session.session_date, session.start_time`,
+    [normalizeEmail(customerEmail), singaporeDateOf(new Date())]
   );
 }

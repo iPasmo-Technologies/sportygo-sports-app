@@ -13,8 +13,9 @@ export function extractRoleFromToken(token: string): UserRole {
       return 'public';
     }
 
-    // Decode the payload (second part)
-    const payload = JSON.parse(atob(parts[1])) as { role?: string };
+    // JWT payloads are base64url ("-", "_", no padding); atob() only accepts standard base64.
+    const base64 = parts[1].replace(/-/g, '+').replace(/_/g, '/');
+    const payload = JSON.parse(atob(base64.padEnd(Math.ceil(base64.length / 4) * 4, '='))) as { role?: string };
     const role = payload.role;
 
     if (role === 'public' || role === 'coach' || role === 'admin') {

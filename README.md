@@ -32,7 +32,7 @@ copy .env.example .env
 ```env
 JWT_SECRET=your-long-random-secret
 GOOGLE_CLIENT_ID=your-google-client-id.apps.googleusercontent.com
-DATABASE_URL=postgresql://<user>:<password>@<neon-host>/<db>?uselibpqcompat=true&sslmode=require
+DATABASE_URL=postgresql://<user>:<password>@<neon-host>/<db>?sslmode=verify-full
 DATABASE_SSL=true
 DATABASE_CONNECTION_TIMEOUT_MS=5000
 DATABASE_POOL_MAX=10
@@ -46,11 +46,14 @@ STRIPE_CURRENCY=sgd
 npm run db:migrate
 npm run db:seed
 npm run db:smoke:slot-lock
+npm run db:smoke:coaching
 ```
+
+The smoke checks need a seeded local or test database and refuse to run with `NODE_ENV=production`.
 
 The supported local database setup sequence is `db:migrate` followed by `db:seed`. No separate login test-data script is required.
 
-If you need to wipe and repopulate all seed data, use `npm run db:reset:seed`.
+There is no reset command. To start from an empty database, point `DATABASE_URL` at a new database (for example a new Neon branch) and run `db:migrate` and `db:seed`.
 
 5. Start backend and frontend.
 
@@ -103,7 +106,6 @@ Past or already-started slots remain in the response but are labelled unavailabl
 | `POST /api/bookings` | Generates missing rows, locks every required 30-minute segment, and marks them booked in one database transaction. |
 | Booking reschedule | Generates the destination date's rows before checking and locking the replacement time range. |
 | `npm run db:seed` | Seeds configuration, facilities, 2026 exact-date exceptions, and 2026 Academy recurring rules. It does not generate a rolling range of `slots` rows. |
-| `npm run db:reset:seed` | Deletes slot rows and related seedable data, then restores configuration and seed rules. Slots are generated again on demand. |
 
 ### Slot API details
 
@@ -184,7 +186,7 @@ Use this annual checklist for year-specific availability and block-outs:
 3. Create recurring Academy or operational block rules with `validFrom` and `validTo` covering the new year through `POST /api/slots/blocks/recurring`, or update the code seed data if those rules must be installed automatically in every environment. The supplied Academy seed rules run only from `2026-01-01` through `2026-12-31`.
 4. Add planned closures or special events with `POST /api/slots/block`. One request can cover up to 31 dates for one facility and time range.
 5. Verify representative weekday, weekend, exception, and blocked dates with `GET /api/slots`, confirming both the generated time range and the `booked` status.
-6. Run `cd backend && npm run db:smoke:slot-lock` against the configured database. Update its year-specific 2026 assertions before treating it as a 2027 regression check.
+6. Run `cd backend && npm run db:smoke:slot-lock` against a seeded test copy of the database. It skips dates with availability exceptions, so it keeps working across years.
 
 ## Database Configuration (Easy Steps)
 
@@ -209,7 +211,6 @@ From `backend/`:
 ```bash
 npm run db:migrate
 npm run db:seed
-npm run db:reset:seed
 ```
 
 Seed now creates:
@@ -263,7 +264,6 @@ sg-booking-app/
       lib/database.ts
       scripts/migrate.ts
       scripts/seed.ts
-      scripts/resetSeed.ts
   docker-compose.yml
   Dockerfile.backend
   Dockerfile.frontend
@@ -302,10 +302,24 @@ Auth persistence:
 
 - login and Google sign-in now upsert the user in database when `DATABASE_URL` is configured
 
-Database reset utility:
+Database reset:
 
-- `npm run db:reset:seed` is the supported reset operation. It truncates seedable tables, including `slots`, then repopulates schema configuration and seed rules. Slot rows are recreated on demand.
-- `POST /api/dev/reset-seed` is currently disabled in the source and must not be used for environment resets.
+- The application has no reset command or reset endpoint; they were removed so that a database can't be wiped by mistake. For a clean database, create a new one (for example a new Neon branch), point `DATABASE_URL` at it, and run `npm run db:migrate` and `npm run db:seed`.
+
+Creating an admin account:
+
+No admin account is created automatically, and no admin password is stored in code or configuration. To make someone an admin:
+
+1. They register through the app with their own email and password.
+2. From `backend/`, with `DATABASE_URL` pointing at the right database, run:
+
+   ```bash
+   npm run admin:promote -- their-email@example.com
+   ```
+
+3. They log out and log in again to get admin access.
+
+The script changes only the account's role, never its password. Running it twice is safe. It reports an error if no active account exists for that email. Do this once per new or reset environment.
 
 ## Environment Variables
 
@@ -313,13 +327,14 @@ Database reset utility:
 
 - `PORT` default `3001`
 - `FRONTEND_URL` default `http://localhost:5173`
-- `JWT_SECRET` required
+- `JWT_SECRET` required. In production (`NODE_ENV=production`) it must be at least 32 random characters, or the server refuses to start; placeholder values from the docs are also refused. Generate one with `node -e "console.log(require('crypto').randomBytes(48).toString('base64'))"`. Locally, a missing value falls back to an insecure development secret with a warning.
 - `DATABASE_URL` required for Neon/Postgres mode
 - `DATABASE_SSL` default `true`
 - `DATABASE_CONNECTION_TIMEOUT_MS` default `5000`
 - `DATABASE_POOL_MAX` default `10`
 - `STRIPE_SECRET_KEY` required for card checkout and booking confirmation
 - `STRIPE_CURRENCY` optional, defaults to `sgd`
+- `MOCK_PAYMENT_ENABLED` optional, defaults to off. `true` enables `POST /api/payments/mock` for local testing: `{ "type": "court", ... }` confirms a court booking and `{ "type": "coaching", "packageId": "..." }` credits a coaching package, both without payment. It is always off when `NODE_ENV=production`; otherwise the endpoint returns `404`.
 
 ### Frontend (`frontend/.env.local`)
 
@@ -357,7 +372,7 @@ NODE_ENV=development
 PORT=3001
 FRONTEND_URL=http://localhost:5173
 JWT_SECRET=your-local-dev-secret
-DATABASE_URL=postgresql://<user>:<password>@<neon-host>/<db>?uselibpqcompat=true&sslmode=require
+DATABASE_URL=postgresql://<user>:<password>@<neon-host>/<db>?sslmode=verify-full
 DATABASE_SSL=true
 DATABASE_CONNECTION_TIMEOUT_MS=5000
 DATABASE_POOL_MAX=10
@@ -395,7 +410,7 @@ Local URLs:
 - Backend: `http://localhost:3001`
 - Health: `http://localhost:3001/api/health`
 
-To reset a local database, stop the backend and run `npm run db:reset:seed` from `backend/`.
+To start again with a clean local database, point `DATABASE_URL` at a new database and run `npm run db:migrate` and `npm run db:seed` from `backend/`. Register again and run `npm run admin:promote -- <email>` if you need an admin.
 
 ### Production Deployment
 
@@ -414,7 +429,7 @@ NODE_ENV=production
 PORT=3001
 FRONTEND_URL=https://your-frontend-domain.com
 JWT_SECRET=<strong-random-secret>
-DATABASE_URL=postgresql://<user>:<password>@<neon-host>/<db>?uselibpqcompat=true&sslmode=require
+DATABASE_URL=postgresql://<user>:<password>@<neon-host>/<db>?sslmode=verify-full
 DATABASE_SSL=true
 DATABASE_CONNECTION_TIMEOUT_MS=5000
 DATABASE_POOL_MAX=20
@@ -545,7 +560,7 @@ GitHub-connected deployment from `main` (preferred):
 - `FRONTEND_URL=https://your-frontend-domain.com`
 - `JWT_SECRET=<strong-random-secret>`
 - `GOOGLE_CLIENT_ID=your-google-client-id.apps.googleusercontent.com`
-- `DATABASE_URL=postgresql://<user>:<password>@<neon-host>/<db>?uselibpqcompat=true&sslmode=require`
+- `DATABASE_URL=postgresql://<user>:<password>@<neon-host>/<db>?sslmode=verify-full`
 - `DATABASE_SSL=true`
 - `DATABASE_CONNECTION_TIMEOUT_MS=5000`
 - `DATABASE_POOL_MAX=20`
@@ -701,7 +716,7 @@ Result:
 - `PORT=3001`
 - `FRONTEND_URL=https://your-frontend-domain.com`
 - `JWT_SECRET=<strong-random-secret>`
-- `DATABASE_URL=postgresql://<user>:<password>@<neon-host>/<db>?uselibpqcompat=true&sslmode=require`
+- `DATABASE_URL=postgresql://<user>:<password>@<neon-host>/<db>?sslmode=verify-full`
 - `DATABASE_SSL=true`
 - `DATABASE_CONNECTION_TIMEOUT_MS=5000`
 - `DATABASE_POOL_MAX=20`
@@ -746,6 +761,8 @@ Local Docker compose:
 ```bash
 docker compose up --build
 ```
+
+The backend image runs with `NODE_ENV=production`, so `backend/.env` needs a real `JWT_SECRET` (32+ random characters); otherwise the backend container exits at startup.
 
 Production container build examples:
 
@@ -794,6 +811,38 @@ cd frontend
 npm run build
 ```
 
+## Tests and Lint
+
+Unit tests use [Vitest](https://vitest.dev/). Run them separately in each folder. They need no database, Stripe key, or SMTP server.
+
+GitHub Actions ([`.github/workflows/ci.yml`](.github/workflows/ci.yml)) runs the same checks on every pull request and every push to `main`, on Node 22: backend build and tests; frontend lint, tests and build. A pull request with a red check should not be merged.
+
+```bash
+# backend
+cd backend
+npm test             # run all tests once
+npm run test:watch   # re-run tests when files change
+
+# frontend
+cd frontend
+npm test
+npm run test:watch
+npm run lint         # ESLint (frontend only)
+```
+
+- Test files sit next to the code they test and end in `.test.ts`, for example `backend/src/lib/bookingPricing.test.ts`.
+- Run a single file: `npx vitest run src/lib/pricing.test.ts`.
+- Run tests whose name matches some text: `npx vitest run -t "parseRate"`.
+- Backend test files are excluded from `npm run build`, so they never ship in `dist/`.
+- Pricing tests use the same expected totals in `backend/src/lib/bookingPricing.test.ts` and `frontend/src/lib/pricing.test.ts`. If you change a fee or rounding rule, update both, or one side will fail.
+- `npm run db:smoke:slot-lock` and `npm run db:smoke:coaching` (backend) are separate smoke checks that need a real, seeded test database; they are not part of `npm test`.
+
+If tests fail with `Worker exited unexpectedly` or `JavaScript heap out of memory`, your machine is low on memory for parallel test workers. Run them one at a time:
+
+```bash
+npx vitest run --maxWorkers=1
+```
+
 ## Troubleshooting
 
 - API errors from frontend:
@@ -812,6 +861,8 @@ run `npm run db:seed` again.
 create at least one booking with your logged-in account and refresh My Bookings.
 - Auth token errors:
 check `JWT_SECRET` and request `Authorization: Bearer <token>`.
+- Emails (welcome, booking, password reset) not arriving:
+look for the `[email]` line in the backend startup log. `SMTP ready` means login works; `SMTP not configured` means one of `SMTP_HOST`, `SMTP_PORT`, `SMTP_USER`, `SMTP_PASS`, `SMTP_FROM` is missing; `SMTP check failed` shows the reason (`EAUTH` = login rejected, `ETIMEDOUT`/`ESOCKET` = port blocked or wrong, `EDNS` = unknown host). Test from `backend/` with `npm run email:verify` (no email sent) or `npm run email:verify -- you@example.com` (sends a test email). Port `465` uses TLS; `587` uses STARTTLS.
 
 ## Deployment Notes
 

@@ -148,9 +148,6 @@ Run once from backend release pipeline or admin runner:
 1. `npm run db:migrate`
 2. `npm run db:seed`
 
-Optional reset in non-production only:
-- `npm run db:reset:seed`
-
 ## Step G: Code changes required for this selected stack
 
 For this chosen stack (ECS Fargate + RDS PostgreSQL), your current codebase needs **minimal changes**.

@@ -1,5 +1,6 @@
 import { useEffect } from 'react';
-import { ArrowRight, CalendarDays, Check, Clock3, Copy, Lock, MapPin, ShieldCheck, Trophy } from 'lucide-react';
+import { ArrowRight, CalendarDays, Check, Clock3, Lock, MapPin, ShieldCheck, Trophy } from 'lucide-react';
+import CopyButton from '@/components/CopyButton';
 import { useApp } from '@/context/AppContext';
 import { sgd } from '@/lib/pricing';
 import { announce, formatDateLong } from '@/lib/utils';
@@ -114,10 +115,6 @@ export default function BookingConfirmationScreen() {
     navigate('bookings');
   }
 
-  function copyReceiptId() {
-    navigator.clipboard.writeText(displayReceipt).catch(() => undefined);
-  }
-
   return (
     <div className="page-container page-container--immersive screen-fade-enter">
       <div className="success-phone" style={{ backgroundImage: `url(${pageBackground})` }}>
@@ -155,9 +152,7 @@ export default function BookingConfirmationScreen() {
               <small>Confirmation ID</small>
               <div className="success-confirm-id-v2">
                 {displayReceipt}
-                <button type="button" onClick={copyReceiptId} aria-label="Copy confirmation id">
-                  <Copy size={18} strokeWidth={2.2} />
-                </button>
+                <CopyButton text={displayReceipt} label="Copy confirmation id" iconSize={18} />
               </div>
               <p>A confirmation has been sent to <span>{state.customerEmail}</span></p>
             </div>

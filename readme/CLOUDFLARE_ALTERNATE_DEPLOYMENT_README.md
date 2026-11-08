@@ -394,12 +394,6 @@ npm run db:seed
 
 The seed loads sports, events, facilities, packages, and slot configuration.
 
-Do not run this destructive command against production:
-
-```powershell
-npm run db:reset:seed
-```
-
 ## 7. Final verification
 
 - Pages frontend loads successfully.

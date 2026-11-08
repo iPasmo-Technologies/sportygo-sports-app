@@ -3,7 +3,6 @@ import {
   AlertTriangle,
   CalendarDays,
   Clock3,
-  Copy,
   CreditCard,
   Headphones,
   MapPin,
@@ -18,6 +17,10 @@ import { announce } from '@/lib/utils';
 import ScreenHeader from '@/components/ScreenHeader';
 import ErrorBanner from '@/components/ErrorBanner';
 import Spinner from '@/components/Spinner';
+import BookingsSection from '@/components/BookingsSection';
+import CoachingBookingsSection from '@/components/CoachingBookingsSection';
+import CopyButton from '@/components/CopyButton';
+import { sportLabel } from '@/lib/coaching';
 import { formatDateShort } from '@/lib/utils';
 import pageBackground from '@/assets/select_sport_bk.png';
 import indoorCricketCard from '@/assets/card_indoor_cricket.png';
@@ -142,11 +145,6 @@ function BookingCardView({
   onReschedule: (booking: BookingCard) => void;
   onCancel: (booking: BookingCard) => void;
 }) {
-  function copyId() {
-    navigator.clipboard.writeText(booking.id).catch(() => undefined);
-    announce('Booking ID copied.');
-  }
-
   return (
     <article className="bookings-card-v2">
       <div className="bookings-card-main-v2">
@@ -188,9 +186,7 @@ function BookingCardView({
         <div className="bookings-id-v2">
           <small>Booking ID</small>
           <strong>{booking.id}</strong>
-          <button type="button" className="bookings-copy-btn-v2" onClick={copyId} aria-label="Copy booking id">
-            <Copy size={16} strokeWidth={2.3} />
-          </button>
+          <CopyButton text={booking.id} label="Copy booking id" className="bookings-copy-btn-v2" />
         </div>
 
         {showActions ? (
@@ -357,11 +353,6 @@ function BookingDetailsDialog({ booking, onClose }: { booking: BookingCard; onCl
     return () => window.removeEventListener('keydown', handleKeyDown);
   }, [onClose]);
 
-  function copyId() {
-    navigator.clipboard.writeText(booking.id).catch(() => undefined);
-    announce('Booking ID copied.');
-  }
-
   const paymentMethodLabel = booking.paymentMethod === 'CASH'
     ? 'Cash at Venue'
     : {
@@ -448,9 +439,7 @@ function BookingDetailsDialog({ booking, onClose }: { booking: BookingCard; onCl
 
         <div className="booking-details-id">
           <span><small>Booking ID</small><strong>{booking.id}</strong></span>
-          <button type="button" onClick={copyId} aria-label="Copy booking id">
-            <Copy size={17} strokeWidth={2.3} />
-          </button>
+          <CopyButton text={booking.id} label="Copy booking id" iconSize={17} />
         </div>
 
         <button type="button" className="booking-details-done" onClick={onClose}>Done</button>
@@ -503,6 +492,36 @@ export default function ViewBookingsScreen() {
       .map(mapHistoryToCard);
   }, [historyItems, tab]);
 
+  // Sports in the order their first upcoming booking appears in the list.
+  const upcomingBySport = useMemo(() => {
+    const groups: { sportId: BookingCard['sportId']; bookings: BookingCard[] }[] = [];
+    for (const booking of activeList) {
+      const group = groups.find((item) => item.sportId === booking.sportId);
+      if (group) group.bookings.push(booking);
+      else groups.push({ sportId: booking.sportId, bookings: [booking] });
+    }
+    return groups;
+  }, [activeList]);
+
+  function renderBookingCard(booking: BookingCard) {
+    return (
+      <BookingCardView
+        key={booking.id}
+        booking={booking}
+        showActions={tab === 'upcoming'}
+        onViewDetails={setSelectedBooking}
+        onReschedule={(selected) => {
+          const item = historyItems.find((candidate) => candidate.receiptId === selected.id);
+          if (item) setActionBooking({ booking: item, mode: 'reschedule' });
+        }}
+        onCancel={(selected) => {
+          const item = historyItems.find((candidate) => candidate.receiptId === selected.id);
+          if (item) setActionBooking({ booking: item, mode: 'cancel' });
+        }}
+      />
+    );
+  }
+
   return (
     <div className="page-container page-container--immersive screen-fade-enter">
       <div className="bookings-phone" style={{ backgroundImage: `url(${pageBackground})` }}>
@@ -533,44 +552,39 @@ export default function ViewBookingsScreen() {
             </button>
           </section>
 
-          <section className="bookings-section-v2">
-            <header>
-              <h2>
-                <CalendarDays size={18} strokeWidth={2.2} />
-                {tab === 'upcoming' ? 'Upcoming Bookings' : 'Previous Bookings'}
-              </h2>
-              <span>{activeList.length}</span>
-            </header>
+          {tab === 'upcoming' && !loading && upcomingBySport.length > 0 ? (
+            // Upcoming court bookings get one section per sport, e.g. "Pickleball Facility Bookings".
+            upcomingBySport.map(({ sportId, bookings }) => (
+              <BookingsSection
+                key={sportId}
+                title={`${sportLabel(sportId)} Facility Bookings`}
+                icon={<CalendarDays size={18} strokeWidth={2.2} />}
+                count={bookings.length}
+              >
+                <div className="bookings-list-v2">{bookings.map(renderBookingCard)}</div>
+              </BookingsSection>
+            ))
+          ) : (
+            <BookingsSection
+              title={tab === 'upcoming' ? 'Upcoming Bookings' : 'Previous Bookings'}
+              icon={<CalendarDays size={18} strokeWidth={2.2} />}
+              count={activeList.length}
+            >
+              {loading ? (
+                <div className="bookings-list-v2">
+                  <Spinner />
+                </div>
+              ) : activeList.length === 0 ? (
+                <div className="bookings-list-v2">
+                  <p>{tab === 'upcoming' ? 'No upcoming bookings yet.' : 'No previous bookings yet.'}</p>
+                </div>
+              ) : (
+                <div className="bookings-list-v2">{activeList.map(renderBookingCard)}</div>
+              )}
+            </BookingsSection>
+          )}
 
-            {loading ? (
-              <div className="bookings-list-v2">
-                <Spinner />
-              </div>
-            ) : activeList.length === 0 ? (
-              <div className="bookings-list-v2">
-                <p>{tab === 'upcoming' ? 'No upcoming bookings yet.' : 'No previous bookings yet.'}</p>
-              </div>
-            ) : (
-              <div className="bookings-list-v2">
-                {activeList.map((booking) => (
-                  <BookingCardView
-                    key={booking.id}
-                    booking={booking}
-                    showActions={tab === 'upcoming'}
-                    onViewDetails={setSelectedBooking}
-                    onReschedule={(selected) => {
-                      const item = historyItems.find((candidate) => candidate.receiptId === selected.id);
-                      if (item) setActionBooking({ booking: item, mode: 'reschedule' });
-                    }}
-                    onCancel={(selected) => {
-                      const item = historyItems.find((candidate) => candidate.receiptId === selected.id);
-                      if (item) setActionBooking({ booking: item, mode: 'cancel' });
-                    }}
-                  />
-                ))}
-              </div>
-            )}
-          </section>
+          {tab === 'upcoming' && <CoachingBookingsSection />}
 
           <section className="bookings-help-v2">
             <div>

@@ -1,0 +1,6 @@
+[
+  { "id": "pickleball-3-sessions", "sportId": "pickleball", "title": "Pickleball 3 Sessions Package", "sessionCount": 3, "price": 88, "validityWeeks": 5, "description": "A short starter pack to build your pickleball fundamentals.", "enabled": true, "sortOrder": 1 },
+  { "id": "pickleball-10-sessions", "sportId": "pickleball", "title": "Pickleball 10 Sessions Package", "sessionCount": 10, "price": 250, "validityWeeks": 13, "description": "Regular coaching to sharpen your shots, footwork and court positioning.", "enabled": true, "sortOrder": 2 },
+  { "id": "pickleball-15-sessions", "sportId": "pickleball", "title": "Pickleball 15 Sessions Package", "sessionCount": 15, "price": 350, "validityWeeks": 18, "description": "Structured development for committed players preparing for league play.", "enabled": true, "sortOrder": 3 },
+  { "id": "pickleball-20-sessions", "sportId": "pickleball", "title": "Pickleball 20 Sessions Package", "sessionCount": 20, "price": 450, "validityWeeks": 25, "description": "Our best value per session, covering singles and doubles tactics.", "enabled": true, "sortOrder": 4 }
+]

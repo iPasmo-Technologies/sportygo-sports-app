@@ -144,8 +144,7 @@ Expected outputs:
 - Use different secrets for local, staging, and production.
 - Use Stripe live keys only for the production environment.
 - Use a strong random `JWT_SECRET` and a separate `PASSWORD_AT_REST_KEY`.
-- Set `NODE_ENV=production`; this disables the development reset route.
-- Keep `DEV_RESET_TOKEN` unset or set it to an unusable value in production.
+- Set `NODE_ENV=production`.
 - Restrict CORS to the final frontend origin.
 
 ## 6. Deploy the frontend to Cloudflare Pages
@@ -421,7 +420,7 @@ Updating `DATABASE_URL` does not migrate or seed the new database. Before switch
 1. Sign in to Neon and create or select the production project.
 2. Create a production branch/database if your Neon plan uses branches.
 3. Copy the pooled or direct production connection string supplied by Neon.
-4. Keep SSL enabled. The existing backend sets `ssl: { rejectUnauthorized: false }` when `DATABASE_SSL=true`.
+4. Keep SSL enabled (`DATABASE_SSL=true`). The backend then always verifies the database's TLS certificate. In the connection string use `sslmode=verify-full` (not `sslmode=require`, which makes the `pg` driver print a security warning and will mean a weaker check in `pg` v9), for example `...neon.tech/neondb?sslmode=verify-full&channel_binding=require`.
 5. Add the connection string as the backend `DATABASE_URL` secret.
 6. Allow the backend to connect and verify `GET /api/health`.
 
@@ -436,7 +435,7 @@ npm run db:migrate
 npm run db:seed
 ```
 
-The seed imports the backend JSON data, including the current pickleball prices. Existing database rows are updated by the seed upsert logic, so run `db:seed` after catalog changes. Do not use `npm run db:reset:seed` against production because it deletes application data.
+The database is the source of truth. The seed only inserts rows that are missing (it fills a new database from the backend JSON files) and never deletes or overwrites existing data, so it is safe to re-run. To change data in an existing database (prices, cards, packages, spots), add a one-time migration in `backend/src/lib/dataMigrations.ts`; it runs once, automatically, the next time the backend starts or `db:migrate` runs.
 
 ### Optional Hyperdrive
 
@@ -490,7 +489,6 @@ Deploy the backend before the frontend if the frontend points to a new API hostn
 ### Security
 
 - A request from an unapproved browser origin is rejected by CORS.
-- `/api/dev/reset-seed` is unavailable in production.
 - Stripe secret, Neon URL, SMTP password, JWT secret, and password-at-rest key are not present in frontend assets or Git history.
 - Pages production variables use live values and test-only UI flags are disabled.
 

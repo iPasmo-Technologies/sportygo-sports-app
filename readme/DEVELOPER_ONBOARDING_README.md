@@ -233,6 +233,10 @@ Before opening a pull request:
 - `git status` shows only intended changes.
 - The frontend build passes.
 - The backend build passes.
+- `npm test` passes in both `frontend` and `backend`.
+- The GitHub **CI** check on the pull request is green. It runs the build, lint and tests automatically; open its log on GitHub to see what failed.
+- `npm run lint` passes in `frontend`.
+- New or changed logic has a test. For a bug fix, add a test that fails before the fix and passes after it.
 - You tested the affected user flow.
 - No `.env`, passwords, API keys, Stripe secret keys, or SMTP credentials are included.
 - The pull request description explains what changed and how it was tested.
@@ -310,12 +314,13 @@ FRONTEND_URLS=http://localhost:5173
 JWT_SECRET=use-a-long-random-local-secret
 VITE_AUTH_PAYLOAD_KEY=use-the-same-key-as-frontend
 PASSWORD_AT_REST_KEY=use-a-separate-local-secret
-DATABASE_URL=postgresql://username:password@host/database?sslmode=require
+DATABASE_URL=postgresql://username:password@host/database?sslmode=verify-full
 DATABASE_SSL=true
 DATABASE_CONNECTION_TIMEOUT_MS=5000
 DATABASE_POOL_MAX=10
 STRIPE_SECRET_KEY=sk_test_your_key
 STRIPE_CURRENCY=sgd
+MOCK_PAYMENT_ENABLED=true
 SMTP_HOST=smtp.example.com
 SMTP_PORT=587
 SMTP_USER=your-smtp-user
@@ -325,10 +330,12 @@ SMTP_FROM=SportyGo <verified-sender@example.com>
 
 Important:
 
+- `JWT_SECRET` signs login tokens. Locally any value works; if it is missing, the backend warns and uses an insecure development secret. In production (including Docker, which runs with `NODE_ENV=production`) it must be at least 32 random characters, or the backend refuses to start.
 - `VITE_AUTH_PAYLOAD_KEY` in the backend must match the frontend value exactly.
 - `PASSWORD_AT_REST_KEY` is used to encrypt passwords stored in the database.
 - `DATABASE_URL` is required for real database mode.
 - `STRIPE_SECRET_KEY` must be a Stripe test secret key for local development.
+- `MOCK_PAYMENT_ENABLED=true` lets the Mock Pay button create court bookings and coaching package purchases without a card, for local testing only. It never works when `NODE_ENV=production`. Never set it on a shared or production server.
 - SMTP settings are required to send real password-reset and booking emails.
 - Do not copy production secrets into a developer laptop unless explicitly approved.
 
@@ -368,6 +375,8 @@ npm.cmd run dev       # Start Vite development server
 npm.cmd run build     # Type-check and create frontend/dist
 npm.cmd run preview   # Preview the production build locally
 npm.cmd run lint      # Run ESLint
+npm.cmd test          # Run unit tests once (Vitest)
+npm.cmd run test:watch # Re-run unit tests when files change
 ```
 
 The development frontend normally starts at:
@@ -393,6 +402,9 @@ Useful backend commands:
 npm.cmd run dev       # Start TypeScript API with automatic restart
 npm.cmd run build     # Compile TypeScript into backend/dist
 npm.cmd start         # Run the compiled production server
+npm.cmd run admin:promote -- <email> # Make a registered user an admin
+npm.cmd test          # Run unit tests once (Vitest, no database needed)
+npm.cmd run test:watch # Re-run unit tests when files change
 ```
 
 The development backend normally starts at:
@@ -416,6 +428,7 @@ The application uses PostgreSQL. The team commonly uses Neon PostgreSQL, but ano
 npm.cmd run db:migrate
 npm.cmd run db:seed
 npm.cmd run db:smoke:slot-lock
+npm.cmd run db:smoke:coaching
 ```
 
 What these commands do:
@@ -423,14 +436,25 @@ What these commands do:
 - `db:migrate` creates or updates the database schema.
 - `db:seed` inserts sports, facilities, packages, events, and slot configuration data.
 - `db:smoke:slot-lock` checks that two users cannot reserve the same slot at the same time.
+- `db:smoke:coaching` checks that coaching sessions can't be overbooked and a session can't be used twice.
+- Both smoke checks need a seeded local or test database, clean up after themselves, and refuse to run with `NODE_ENV=production`.
 
-To reset seedable local data and repopulate it:
+There is no reset command. To start again with a clean local database, point `DATABASE_URL` at a new database and run `db:migrate` and `db:seed`.
+
+### Create a local admin account
+
+Admin screens (block slots, view users, all bookings) need an admin account. No admin is created automatically.
+
+1. Register in the app with your own test email and password.
+2. From the `backend` folder, run:
 
 ```powershell
-npm.cmd run db:reset:seed
+npm.cmd run admin:promote -- your-test-email@example.com
 ```
 
-Use reset commands carefully. They may delete local development data.
+3. Log out and log in again.
+
+Only promote accounts on databases you are allowed to change. Never promote accounts on the production database unless the project lead asks you to.
 
 Check backend and database readiness:
 
@@ -489,7 +513,7 @@ Stop Docker:
 docker compose down
 ```
 
-Docker still needs a correctly configured `backend/.env` because the backend container reads that file.
+Docker still needs a correctly configured `backend/.env` because the backend container reads that file. The container runs in production mode, so `JWT_SECRET` must be a real random value of at least 32 characters; the placeholder from `.env.example` makes the backend container stop at startup.
 
 ## 13. Main Functional Requirements
 
@@ -523,7 +547,8 @@ Docker still needs a correctly configured `backend/.env` because the backend con
 - The backend creates a Stripe PaymentIntent using the secret key.
 - The frontend confirms the payment using the publishable key.
 - Test keys and test cards must be used during development.
-- Mock payment is available only when `VITE_MOCK_PAYMENT_ENABLED=true`.
+- Mock payment is available only when the frontend has `VITE_MOCK_PAYMENT_ENABLED=true` and the backend has `MOCK_PAYMENT_ENABLED=true` outside production.
+- Card payment through Stripe is the only payment method the backend accepts. Google Pay, PayNow and GrabPay show as "Coming soon" and are rejected by the API.
 - Live Stripe keys require HTTPS in production.
 
 ### Booking and profile
@@ -653,7 +678,7 @@ backend/
   src/lib/email.ts            Nodemailer email messages
   src/lib/stripe.ts           Stripe server integration
   src/middleware/             Authentication middleware
-  src/scripts/                Migration, seed, reset, and smoke scripts
+  src/scripts/                Migration, seed, and smoke scripts
 ```
 
 ## 16. Backend API Quick Reference
@@ -741,6 +766,9 @@ Check:
 - The backend terminal shows the email result or SMTP error.
 - The message is not in spam or a provider suppression list.
 - FakeSMTP is running if you intentionally configured local FakeSMTP.
+- The backend startup log shows an `[email]` line: `SMTP ready`, `SMTP not configured`, or `SMTP check failed` with a reason code.
+- From the `backend` folder, `npm.cmd run email:verify` checks the connection and login without sending anything, and `npm.cmd run email:verify -- your-test@example.com` sends a test email. Neither prints the password.
+- Without SMTP settings, local development prints the reset code in the backend terminal so you can still test password reset. Production never logs reset codes.
 
 The backend does not write application logs to a file by default. To capture development output:
 
@@ -779,6 +807,19 @@ npm.cmd run build
 ```
 
 Read the first error carefully. Fix the first relevant error, then run the build again.
+
+### Unit tests fail or crash
+
+Run the tests from the correct folder (`frontend` or `backend`) with `npm.cmd test`.
+
+- A test with a red `×` is a real failure: read its expected and received values. Never delete or weaken a test to make it pass; fix the code or ask the project lead.
+- `Worker exited unexpectedly` or `JavaScript heap out of memory` means the computer is low on memory for parallel test workers. Run them one at a time:
+
+```powershell
+npx vitest run --maxWorkers=1
+```
+
+- Run one test file: `npx vitest run src/lib/pricing.test.ts`.
 
 ## 19. Developer Safety Rules
 

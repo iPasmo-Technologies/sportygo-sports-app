@@ -29,6 +29,7 @@ import imgCricketAcademy from '@/assets/cricket_academy.png';
 import imgCricketCoach from '@/assets/cricket_coach.png';
 import imgCricketGear from '@/assets/cricket_gear.png';
 import { fetchSportEvents } from '@/lib/api';
+import { coachImageFor } from '@/lib/coachImages';
 import type { SportEventCard, SportEventsResponse, SportId, SportOption } from '@/types';
 
 type SportBannerMap = Record<SportOption['bannerKey'], string>;
@@ -71,6 +72,11 @@ const EVENT_IMAGES: EventImageMap = {
   coach: imgCricketCoach,
   gear: imgCricketGear,
 };
+
+function eventImage(card: SportEventCard, fallback: string): string {
+  if (card.imageKey === 'coach') return coachImageFor(card.sportId);
+  return EVENT_IMAGES[card.imageKey] ?? fallback;
+}
 
 function FeatureIcon({ kind }: { kind: SportEventCard['icon'] }) {
   if (kind === 'calendar') return <CalendarDays size={22} strokeWidth={2.1} />;
@@ -164,7 +170,7 @@ export default function SportEventsScreen() {
             >
               <div className="sport-event-card-media">
                 <img
-                  src={EVENT_IMAGES[card.imageKey] ?? selectedSportCard}
+                  src={eventImage(card, selectedSportCard)}
                   alt={card.title}
                   className="sport-event-card-image"
                 />

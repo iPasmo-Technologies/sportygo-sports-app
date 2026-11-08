@@ -11,6 +11,13 @@ import type {
   BookingPayload,
   BookingResponse,
   BookingRescheduleResponse,
+  CoachingBalanceResponse,
+  CoachingBookingsResponse,
+  CoachingPackagesResponse,
+  CoachingPaymentIntentResponse,
+  CoachingPurchaseResponse,
+  CoachingSessionBookingResponse,
+  CoachingSessionsResponse,
   LoginResponse,
   ProfileResponse,
   RegisterPayload,
@@ -174,7 +181,8 @@ function buildLocalSlots(date: string, sportId: SportId, facilityCode: string): 
 }
 
 export class ApiError extends Error {
-  constructor(message: string, public readonly status: number) {
+  // `code` is the backend's machine-readable reason (e.g. 'profile-incomplete', 'full'), when it sends one.
+  constructor(message: string, public readonly status: number, public readonly code?: string) {
     super(message);
     this.name = 'ApiError';
   }
@@ -197,8 +205,12 @@ async function request<T>(
   });
 
   if (!res.ok) {
-    const body = await res.json().catch(() => ({}));
-    throw new ApiError((body as { error?: string }).error ?? `Request failed: ${res.status}`, res.status);
+    const body = await res.json().catch(() => ({})) as { error?: string; code?: unknown };
+    throw new ApiError(
+      body.error ?? `Request failed: ${res.status}`,
+      res.status,
+      typeof body.code === 'string' ? body.code : undefined
+    );
   }
 
   return res.json() as Promise<T>;
@@ -509,10 +521,10 @@ export async function createMockBooking(
   token: string
 ): Promise<BookingResponse> {
   markLocalBooked(payload.sportId, payload.facilityCode, payload.selectedDate, payload.selectedTime);
-  return request<BookingResponse>('/api/bookings/mock', {
+  return request<BookingResponse>('/api/payments/mock', {
     method: 'POST',
     headers: { Authorization: `Bearer ${token}` },
-    body: JSON.stringify(payload),
+    body: JSON.stringify({ type: 'court', ...payload }),
   });
 }
 
@@ -562,4 +574,62 @@ export async function rescheduleMyBooking(
   unmarkLocalBooked(booking.sportId, booking.facilityCode, booking.slotDate, booking.slotTime.slice(0, 5));
   markLocalBooked(booking.sportId, booking.facilityCode, selectedDate, selectedTime);
   return response;
+}
+
+// ─── Coaching ─────────────────────────────────────────────────
+// Prices, receipt ids and the customer email all come from the server; the client only sends ids.
+
+export async function fetchCoachingPackages(sportId: SportId): Promise<CoachingPackagesResponse> {
+  return request<CoachingPackagesResponse>(`/api/coaching/packages?${new URLSearchParams({ sportId }).toString()}`);
+}
+
+export async function createCoachingPaymentIntent(packageId: string, token: string): Promise<CoachingPaymentIntentResponse> {
+  return request<CoachingPaymentIntentResponse>('/api/coaching/purchases/payment-intent', {
+    method: 'POST',
+    headers: { Authorization: `Bearer ${token}` },
+    body: JSON.stringify({ packageId }),
+  });
+}
+
+// Safe to call again with the same payment: the server returns the existing purchase.
+export async function confirmCoachingPurchase(paymentIntentId: string, token: string): Promise<CoachingPurchaseResponse> {
+  return request<CoachingPurchaseResponse>('/api/coaching/purchases', {
+    method: 'POST',
+    headers: { Authorization: `Bearer ${token}` },
+    body: JSON.stringify({ paymentIntentId }),
+  });
+}
+
+// Test only: the backend returns 404 unless MOCK_PAYMENT_ENABLED=true outside production.
+export async function createMockCoachingPurchase(packageId: string, token: string): Promise<CoachingPurchaseResponse> {
+  return request<CoachingPurchaseResponse>('/api/payments/mock', {
+    method: 'POST',
+    headers: { Authorization: `Bearer ${token}` },
+    body: JSON.stringify({ type: 'coaching', packageId }),
+  });
+}
+
+export async function fetchCoachingBalance(sportId: SportId, token: string): Promise<CoachingBalanceResponse> {
+  return request<CoachingBalanceResponse>(`/api/coaching/balance?${new URLSearchParams({ sportId }).toString()}`, {
+    headers: { Authorization: `Bearer ${token}` },
+  });
+}
+
+export async function fetchCoachingSessions(sportId: SportId, token: string): Promise<CoachingSessionsResponse> {
+  return request<CoachingSessionsResponse>(`/api/coaching/sessions?${new URLSearchParams({ sportId }).toString()}`, {
+    headers: { Authorization: `Bearer ${token}` },
+  });
+}
+
+export async function bookCoachingSession(sessionId: string, token: string): Promise<CoachingSessionBookingResponse> {
+  return request<CoachingSessionBookingResponse>(`/api/coaching/sessions/${encodeURIComponent(sessionId)}/book`, {
+    method: 'POST',
+    headers: { Authorization: `Bearer ${token}` },
+  });
+}
+
+export async function fetchMyCoachingBookings(token: string): Promise<CoachingBookingsResponse> {
+  return request<CoachingBookingsResponse>('/api/coaching/my-bookings', {
+    headers: { Authorization: `Bearer ${token}` },
+  });
 }

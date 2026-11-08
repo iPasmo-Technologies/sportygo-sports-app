@@ -1,4 +1,5 @@
 import { Router } from 'express';
+import { asyncHandler } from '../middleware/asyncHandler';
 import { listSportEvents, listSportFacilities, listSports } from '../lib/database';
 
 const router = Router();
@@ -10,13 +11,13 @@ function resolveTemplate(template: string, sportLabel: string): string {
 }
 
 // GET /api/sports
-router.get('/', async (_req, res) => {
+router.get('/', asyncHandler(async (_req, res) => {
   const sports = await listSports();
   res.json({ sports });
-});
+}));
 
 // GET /api/sports/:sportId/events
-router.get('/:sportId/events', async (req, res) => {
+router.get('/:sportId/events', asyncHandler(async (req, res) => {
   const sports = await listSports();
   const sport = sports.find((item) => item.id === req.params.sportId);
 
@@ -39,10 +40,10 @@ router.get('/:sportId/events', async (req, res) => {
   }));
 
   res.json({ sport, events });
-});
+}));
 
 // GET /api/sports/:sportId/facilities
-router.get('/:sportId/facilities', async (req, res) => {
+router.get('/:sportId/facilities', asyncHandler(async (req, res) => {
   const sports = await listSports();
   const sport = sports.find((item) => item.id === req.params.sportId);
 
@@ -53,6 +54,6 @@ router.get('/:sportId/facilities', async (req, res) => {
 
   const facilities = (await listSportFacilities(sport.id)).filter((facility) => facility.enabled);
   res.json({ sport, facilities });
-});
+}));
 
 export default router;

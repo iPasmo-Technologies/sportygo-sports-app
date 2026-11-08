@@ -199,7 +199,13 @@ Generate:
 
 Migration must be repeatable.
 
-Use `npm run db:reset:seed` from `backend/` when you need to truncate seedable tables and repopulate them in one step.
+There is no reset command. For a clean database, create a new one (for example a new Neon branch), point `DATABASE_URL` at it, and run `npm run db:migrate` and `npm run db:seed` from `backend/`.
+
+### The database is the source of truth
+
+- `db:seed` only inserts rows that are missing. It fills a new database from the JSON files in `backend/src/data/json/` and never deletes or overwrites existing rows, so it is safe to re-run.
+- The schema setup that runs on every backend start only fills empty values; it no longer resets addresses, prices or enabled flags.
+- To change data in an existing database, add a one-time migration to `DATA_MIGRATIONS` in `backend/src/lib/dataMigrations.ts` and update the matching JSON file so new databases start the same way. Each migration runs once per database (recorded in `applied_data_migrations`) the next time the backend starts or `db:migrate` runs. Never edit or remove a migration that has shipped.
 
 Seeded catalog tables now include `sports` for the Choose Your Sport screen, `sport_events` for the Sport Events screen, and `sport_facilities` for the Sport Facility screen.
 

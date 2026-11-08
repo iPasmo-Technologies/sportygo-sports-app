@@ -1,15 +1,18 @@
 import { Router } from 'express';
+import { asyncHandler } from '../middleware/asyncHandler';
 import jwt from 'jsonwebtoken';
 import { completePasswordReset, countUsersByMobileNumber, createUserPasswordAccount, extendPasswordResetExpiry, findUserByEmail, findUserByEmailOrMobile, listAllUsersForAdmin, savePasswordResetCode, updateUserProfile, verifyPasswordResetCode } from '../lib/database';
 import { decryptClientPasswordPayload, decryptPasswordAtRest, encryptPasswordAtRest } from '../lib/authCrypto';
 import { sendPasswordResetPasscode, sendWelcomeEmail } from '../lib/email';
 import { authMiddleware, requireAdminRole, type AuthenticatedRequest } from '../middleware/authMiddleware';
+import { getJwtSecret } from '../lib/jwtSecret';
 
 const router = Router();
 
 const EMAIL_RE  = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 const MOBILE_RE = /^\+?[0-9]{8,15}$/;
-const JWT_SECRET = process.env.JWT_SECRET ?? 'dev-secret-change-in-production';
+const NAME_MAX_LENGTH = 100;
+const JWT_SECRET = getJwtSecret();
 
 function normalizeEmail(email: string): string {
   return email.trim().toLowerCase();
@@ -27,7 +30,7 @@ function notifyWelcomeEmail(input: Parameters<typeof sendWelcomeEmail>[0]): void
   });
 }
 
-router.get('/profile', authMiddleware, async (req: AuthenticatedRequest, res) => {
+router.get('/profile', authMiddleware, asyncHandler(async (req: AuthenticatedRequest, res) => {
   const user = await findUserByEmail(req.user?.email ?? '');
 
   if (!user) {
@@ -40,11 +43,11 @@ router.get('/profile', authMiddleware, async (req: AuthenticatedRequest, res) =>
     email: user.email,
     mobileNumber: user.mobileNumber,
   });
-});
+}));
 
 // PUT /api/auth/profile — update user profile (full name and mobile number)
-router.put('/profile', authMiddleware, async (req: AuthenticatedRequest, res) => {
-  const { fullName, mobileNumber } = req.body as { fullName?: string; mobileNumber?: string };
+router.put('/profile', authMiddleware, asyncHandler(async (req: AuthenticatedRequest, res) => {
+  const { fullName, mobileNumber } = req.body as { fullName?: unknown; mobileNumber?: unknown };
   const userEmail = req.user?.email;
 
   if (!userEmail) {
@@ -52,41 +55,53 @@ router.put('/profile', authMiddleware, async (req: AuthenticatedRequest, res) =>
     return;
   }
 
-  if (!fullName || !fullName.trim()) {
+  const normalizedName = typeof fullName === 'string' ? fullName.trim() : '';
+  const normalizedMobile = typeof mobileNumber === 'string' ? mobileNumber.trim() : '';
+
+  if (!normalizedName) {
     res.status(400).json({ error: 'Full name is required.' });
     return;
   }
-
-  if (!mobileNumber || !mobileNumber.trim()) {
-    res.status(400).json({ error: 'Mobile number is required.' });
+  if (normalizedName.length < 2) {
+    res.status(400).json({ error: 'Name must be at least 2 characters.' });
+    return;
+  }
+  if (normalizedName.length > NAME_MAX_LENGTH) {
+    res.status(400).json({ error: `Name must be at most ${NAME_MAX_LENGTH} characters.` });
     return;
   }
 
-  try {
-    const updatedUser = await updateUserProfile({
-      email: userEmail,
-      fullName: fullName.trim(),
-      mobileNumber: mobileNumber.trim(),
-    });
-
-    if (!updatedUser) {
-      res.status(404).json({ error: 'Account profile was not found.' });
-      return;
-    }
-
-    res.json({
-      fullName: updatedUser.fullName,
-      email: updatedUser.email,
-      mobileNumber: updatedUser.mobileNumber,
-    });
-  } catch (error) {
-    const message = error instanceof Error ? error.message : 'Unable to update profile.';
-    res.status(400).json({ error: message });
+  if (!normalizedMobile) {
+    res.status(400).json({ error: 'Mobile number is required.' });
+    return;
   }
-});
+  if (!MOBILE_RE.test(normalizedMobile)) {
+    res.status(400).json({ error: 'Enter a valid mobile number.' });
+    return;
+  }
+
+  // Input is validated above, so any error here is unexpected: errorHandler logs it and
+  // answers a generic 500 instead of showing database details to the user.
+  const updatedUser = await updateUserProfile({
+    email: userEmail,
+    fullName: normalizedName,
+    mobileNumber: normalizedMobile,
+  });
+
+  if (!updatedUser) {
+    res.status(404).json({ error: 'Account profile was not found.' });
+    return;
+  }
+
+  res.json({
+    fullName: updatedUser.fullName,
+    email: updatedUser.email,
+    mobileNumber: updatedUser.mobileNumber,
+  });
+}));
 
 // GET /api/auth/users — admin-only directory of registered user accounts.
-router.get('/users', authMiddleware, requireAdminRole, async (_req: AuthenticatedRequest, res) => {
+router.get('/users', authMiddleware, requireAdminRole, asyncHandler(async (_req: AuthenticatedRequest, res) => {
   try {
     const users = await listAllUsersForAdmin();
     res.json({ users });
@@ -94,10 +109,10 @@ router.get('/users', authMiddleware, requireAdminRole, async (_req: Authenticate
     console.error('[admin:users] Unable to list users.', error);
     res.status(500).json({ error: 'Unable to load users at the moment. Please try again.' });
   }
-});
+}));
 
 // POST /api/auth/users/resend-passcode — admin-only resend of a user's existing reset passcode email.
-router.post('/users/resend-passcode', authMiddleware, requireAdminRole, async (req: AuthenticatedRequest, res) => {
+router.post('/users/resend-passcode', authMiddleware, requireAdminRole, asyncHandler(async (req: AuthenticatedRequest, res) => {
   const { email } = req.body as { email?: string };
   const normalizedEmail = normalizeEmail(email ?? '');
 
@@ -121,10 +136,10 @@ router.post('/users/resend-passcode', authMiddleware, requireAdminRole, async (r
   }
 
   res.json({ message: 'Passcode email sent successfully.' });
-});
+}));
 
 // POST /api/auth/users/extend-passcode — admin-only extension of a user's reset passcode expiry by 15 minutes.
-router.post('/users/extend-passcode', authMiddleware, requireAdminRole, async (req: AuthenticatedRequest, res) => {
+router.post('/users/extend-passcode', authMiddleware, requireAdminRole, asyncHandler(async (req: AuthenticatedRequest, res) => {
   const { email } = req.body as { email?: string };
   const normalizedEmail = normalizeEmail(email ?? '');
 
@@ -141,9 +156,9 @@ router.post('/users/extend-passcode', authMiddleware, requireAdminRole, async (r
   }
 
   res.json({ message: 'Passcode expiry extended by 15 minutes.' });
-});
+}));
 
-router.post('/register', async (req, res) => {
+router.post('/register', asyncHandler(async (req, res) => {
   const {
     email,
     name,
@@ -220,9 +235,9 @@ router.post('/register', async (req, res) => {
 
   const token = jwt.sign({ email: normalizedEmail, role: 'public' }, JWT_SECRET, { expiresIn: '24h' });
   res.status(201).json({ token, email: normalizedEmail });
-});
+}));
 
-router.post('/login', async (req, res) => {
+router.post('/login', asyncHandler(async (req, res) => {
   const {
     email,
     loginId,
@@ -293,9 +308,9 @@ router.post('/login', async (req, res) => {
 
   const token = jwt.sign({ email: user.email, role: user.role }, JWT_SECRET, { expiresIn: '24h' });
   res.json({ token, email: user.email });
-});
+}));
 
-router.post('/forgot-password/request', async (req, res) => {
+router.post('/forgot-password/request', asyncHandler(async (req, res) => {
   const {
     email,
   } = req.body as {
@@ -341,9 +356,9 @@ router.post('/forgot-password/request', async (req, res) => {
   }
 
   res.json({ message: 'A 6-digit passcode has been sent to your email address.' });
-});
+}));
 
-router.post('/forgot-password/verify', async (req, res) => {
+router.post('/forgot-password/verify', asyncHandler(async (req, res) => {
   const {
     email,
     code,
@@ -372,9 +387,9 @@ router.post('/forgot-password/verify', async (req, res) => {
   }
 
   res.json({ message: 'Passcode verified successfully.' });
-});
+}));
 
-router.post('/forgot-password/reset', async (req, res) => {
+router.post('/forgot-password/reset', asyncHandler(async (req, res) => {
   const {
     email,
     code,
@@ -429,6 +444,6 @@ router.post('/forgot-password/reset', async (req, res) => {
   }
 
   res.json({ message: 'Password reset successful.' });
-});
+}));
 
 export default router;

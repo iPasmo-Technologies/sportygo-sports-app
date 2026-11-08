@@ -16,6 +16,12 @@ frontend/.env.local
 .idea/
 *.iml
 
+# VS Code local settings
+.vscode/
+
+# Log files (may contain local paths, DB usernames or emails)
+*.log
+
 # Wrangler local cache (Cloudflare account info, auto-regenerated)
 .wrangler/
 **/.wrangler/

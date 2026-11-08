@@ -1,7 +1,9 @@
 import { Request, Response, NextFunction } from 'express';
 import jwt from 'jsonwebtoken';
+import { getJwtSecret } from '../lib/jwtSecret';
 
-const JWT_SECRET = process.env.JWT_SECRET ?? 'dev-secret-change-in-production';
+// Throws at startup in production when JWT_SECRET is missing or weak.
+const JWT_SECRET = getJwtSecret();
 const SUPPORTED_ROLES = ['public', 'coach', 'admin'] as const;
 export type UserRole = (typeof SUPPORTED_ROLES)[number];
 

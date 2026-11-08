@@ -10,8 +10,10 @@ import paymentsRoutes from './routes/payments';
 import packagesRoutes from './routes/packages';
 import sportsRoutes   from './routes/sports';
 import configRoutes   from './routes/config';
-import devRoutes      from './routes/dev';
+import coachingRoutes from './routes/coaching';
 import { isDatabaseConfigured } from './lib/database';
+import { errorHandler } from './middleware/errorHandler';
+import { describeSmtpSettings, verifySmtpConnection } from './lib/email';
 
 const app  = express();
 const PORT = parseInt(process.env.PORT ?? '3001', 10);
@@ -72,7 +74,7 @@ app.use('/api/payments', paymentsRoutes);
 app.use('/api/packages', packagesRoutes);
 app.use('/api/sports',   sportsRoutes);
 app.use('/api/config',   configRoutes);
-app.use('/api/dev',      devRoutes);
+app.use('/api/coaching', coachingRoutes);
 
 // ── Health check ──────────────────────────────────────────────
 app.get('/api/health', (_req, res) => {
@@ -90,8 +92,25 @@ app.use((_req, res) => {
   res.status(404).json({ error: 'Not found.' });
 });
 
+// ── Error handler (must stay last) ────────────────────────────
+app.use(errorHandler);
+
 // ── Start server ──────────────────────────────────────────────
 app.listen(PORT, () => {
   console.log(`[backend] Listening on http://localhost:${PORT}`);
   console.log(`[backend] Accepting requests from: ${allowedOrigins.length > 0 ? allowedOrigins.join(', ') : 'all origins (no FRONTEND_URL/FRONTEND_URLS configured)'}`);
+  void logSmtpStatus();
 });
+
+// Emails are sent in the background, so a broken mail setup is otherwise silent. One line in the
+// startup log shows whether sending can work and, if not, why (e.g. EAUTH, ETIMEDOUT).
+async function logSmtpStatus(): Promise<void> {
+  const check = await verifySmtpConnection();
+  if (check.status === 'ok') {
+    console.log(`[email] SMTP ready: ${describeSmtpSettings()}`);
+  } else if (check.status === 'not-configured') {
+    console.warn('[email] SMTP not configured (SMTP_HOST, SMTP_PORT, SMTP_USER, SMTP_PASS, SMTP_FROM): no emails will be sent.');
+  } else {
+    console.error(`[email] SMTP check failed for ${describeSmtpSettings()}: ${check.code ?? 'ERROR'} ${check.message}`);
+  }
+}

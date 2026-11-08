@@ -1,4 +1,5 @@
 import { randomUUID } from 'crypto';
+import { asyncHandler } from '../middleware/asyncHandler';
 import { Router } from 'express';
 import { authMiddleware, requireAdminRole, type AuthenticatedRequest } from '../middleware/authMiddleware';
 import { blockSlotsForAdmin, createRecurringBlockRules, deactivateRecurringBlockRule, listAdminBlockRules, listSportFacilities, listSlotsForDate, listSports, reserveSlot, releaseReservation, SlotConfigurationMissingError, SlotAlreadyBookedError, SlotReservedError, updateRecurringBlockRule, type SportRow } from '../lib/database';
@@ -46,7 +47,7 @@ function isValidBookingDate(date: string): boolean {
 }
 
 // GET /api/slots?date=YYYY-MM-DD&sportId=cricket&facilityCode=net-2
-router.get('/', async (req, res) => {
+router.get('/', asyncHandler(async (req, res) => {
   const date = req.query.date as string;
   const sportId = parseSportId(req.query.sportId);
   const facilityCode = typeof req.query.facilityCode === 'string' ? req.query.facilityCode.trim() : '';
@@ -76,9 +77,9 @@ router.get('/', async (req, res) => {
       error: 'Unable to load slots at the moment. Please try again.',
     });
   }
-});
+}));
 
-router.post('/block', authMiddleware, requireAdminRole, async (req: AuthenticatedRequest, res) => {
+router.post('/block', authMiddleware, requireAdminRole, asyncHandler(async (req: AuthenticatedRequest, res) => {
   const { sportId: rawSportId, facilityCode: rawFacilityCode, dates, startTime, endTime, reason } = req.body as {
     sportId?: string;
     facilityCode?: string;
@@ -133,18 +134,18 @@ router.post('/block', authMiddleware, requireAdminRole, async (req: Authenticate
     console.error('[admin:block-slots] Unable to block slots.', error);
     res.status(500).json({ error: 'Unable to block slots. Please try again.' });
   }
-});
+}));
 
-router.get('/blocks', authMiddleware, requireAdminRole, async (_req, res) => {
+router.get('/blocks', authMiddleware, requireAdminRole, asyncHandler(async (_req, res) => {
   try {
     res.json({ rules: await listAdminBlockRules() });
   } catch (error) {
     console.error('[admin:block-rules] Unable to list rules.', error);
     res.status(500).json({ error: 'Unable to load block rules.' });
   }
-});
+}));
 
-router.post('/blocks/recurring', authMiddleware, requireAdminRole, async (req: AuthenticatedRequest, res) => {
+router.post('/blocks/recurring', authMiddleware, requireAdminRole, asyncHandler(async (req: AuthenticatedRequest, res) => {
   const { sportId: rawSportId, facilityCode: rawFacilityCode, validFrom, validTo, weekdays, startTime, endTime, reason } = req.body as {
     sportId?: string; facilityCode?: string; validFrom?: string; validTo?: string;
     weekdays?: string[]; startTime?: string; endTime?: string; reason?: string;
@@ -184,9 +185,9 @@ router.post('/blocks/recurring', authMiddleware, requireAdminRole, async (req: A
     console.error('[admin:block-rules] Unable to create recurring rules.', error);
     res.status(500).json({ error: 'Unable to create recurring block rules.' });
   }
-});
+}));
 
-router.put('/blocks/recurring/:id', authMiddleware, requireAdminRole, async (req: AuthenticatedRequest, res) => {
+router.put('/blocks/recurring/:id', authMiddleware, requireAdminRole, asyncHandler(async (req: AuthenticatedRequest, res) => {
   const { validFrom, validTo, weekday, startTime, endTime, reason } = req.body as {
     validFrom?: string; validTo?: string; weekday?: string; startTime?: string; endTime?: string; reason?: string;
   };
@@ -212,9 +213,9 @@ router.put('/blocks/recurring/:id', authMiddleware, requireAdminRole, async (req
     console.error('[admin:block-rules] Unable to update recurring rule.', error);
     res.status(500).json({ error: 'Unable to update recurring block rule.' });
   }
-});
+}));
 
-router.delete('/blocks/recurring/:id', authMiddleware, requireAdminRole, async (req: AuthenticatedRequest, res) => {
+router.delete('/blocks/recurring/:id', authMiddleware, requireAdminRole, asyncHandler(async (req: AuthenticatedRequest, res) => {
   if (!UUID_RE.test(req.params.id)) {
     res.status(400).json({ error: 'Invalid recurring block rule identifier.' });
     return;
@@ -230,10 +231,10 @@ router.delete('/blocks/recurring/:id', authMiddleware, requireAdminRole, async (
     console.error('[admin:block-rules] Unable to deactivate recurring rule.', error);
     res.status(500).json({ error: 'Unable to deactivate recurring block rule.' });
   }
-});
+}));
 
 // POST /api/slots/reserve  — temporarily reserves a slot before payment
-router.post('/reserve', authMiddleware, async (req: AuthenticatedRequest, res) => {
+router.post('/reserve', authMiddleware, asyncHandler(async (req: AuthenticatedRequest, res) => {
   const customerEmail = req.user?.email?.trim().toLowerCase();
   if (!customerEmail) {
     res.status(401).json({ error: 'Authorization token is required.' });
@@ -289,10 +290,10 @@ router.post('/reserve', authMiddleware, async (req: AuthenticatedRequest, res) =
 
     res.status(500).json({ error: 'Unable to reserve slot. Please try again.' });
   }
-});
+}));
 
 // POST /api/slots/release  — releases a reservation (best-effort, e.g. on payment failure)
-router.post('/release', authMiddleware, async (req: AuthenticatedRequest, res) => {
+router.post('/release', authMiddleware, asyncHandler(async (req: AuthenticatedRequest, res) => {
   const customerEmail = req.user?.email?.trim().toLowerCase();
   if (!customerEmail) {
     res.status(401).json({ error: 'Authorization token is required.' });
@@ -307,6 +308,6 @@ router.post('/release', authMiddleware, async (req: AuthenticatedRequest, res) =
 
   await releaseReservation(lockToken, customerEmail).catch(() => undefined);
   res.json({ ok: true });
-});
+}));
 
 export default router;

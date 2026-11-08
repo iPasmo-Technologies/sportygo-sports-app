@@ -1,7 +1,8 @@
-import { Router } from 'express';
+import { Router, type Response } from 'express';
+import { asyncHandler } from '../middleware/asyncHandler';
 import { authMiddleware, requireAdminRole, type AuthenticatedRequest } from '../middleware/authMiddleware';
-import { BookingNotManageableError, cancelBooking, FacilityUnavailableError, listAllBookingsForAdmin, listBookingsByCustomer, rescheduleBooking, saveBooking, SlotAlreadyBookedError, SlotConfigurationMissingError, type SportFacilityRow } from '../lib/database';
-import { getStripeClient, isStripeConfigured, toMinorCurrencyUnits } from '../lib/stripe';
+import { BookingNotManageableError, cancelBooking, FacilityUnavailableError, listAllBookingsForAdmin, listBookingsByCustomer, PaymentAlreadyUsedError, rescheduleBooking, saveBooking, SlotAlreadyBookedError, SlotConfigurationMissingError, type SportFacilityRow } from '../lib/database';
+import { getStripeClient, isStripeConfigured, verifyStripeIntent, type StripeIntentFailure } from '../lib/stripe';
 import { calculateBookingPricing } from '../lib/bookingPricing';
 import { type SportRow } from '../lib/database';
 import { sendBookingConfirmationEmail, sendBookingUpdateEmail } from '../lib/email';
@@ -38,8 +39,18 @@ function notifyBookingConfirmation(input: Parameters<typeof sendBookingConfirmat
   });
 }
 
+// Only card payments through Stripe are integrated. GPAY/PAYNOW/GRABPAY are "Coming soon" in the app.
+const SUPPORTED_PAY_METHODS = new Set(['STRIPE']);
+
+const STRIPE_FAILURE_RESPONSES: Record<StripeIntentFailure, [number, string]> = {
+  'not-succeeded': [402, 'Stripe payment is not completed. Please complete card payment first.'],
+  'amount-mismatch': [400, 'Stripe paid amount does not match booking total.'],
+  'wrong-customer': [403, 'Stripe payment does not belong to the authenticated customer.'],
+  'wrong-purpose': [403, 'Stripe payment does not belong to this booking.'],
+};
+
 // GET /api/bookings  (requires Bearer token)
-router.get('/', authMiddleware, async (req: AuthenticatedRequest, res) => {
+router.get('/', authMiddleware, asyncHandler(async (req: AuthenticatedRequest, res) => {
   const email = req.user?.email;
   if (!email) {
     res.status(401).json({ error: 'Authorization token is required.' });
@@ -48,18 +59,18 @@ router.get('/', authMiddleware, async (req: AuthenticatedRequest, res) => {
 
   const bookings = await listBookingsByCustomer(normalizeEmail(email));
   res.json({ bookings });
-});
+}));
 
-router.get('/admin', authMiddleware, requireAdminRole, async (_req: AuthenticatedRequest, res) => {
+router.get('/admin', authMiddleware, requireAdminRole, asyncHandler(async (_req: AuthenticatedRequest, res) => {
   try {
     res.json({ bookings: await listAllBookingsForAdmin() });
   } catch (error) {
     console.error('[admin:bookings] Unable to list bookings.', error);
     res.status(500).json({ error: 'Unable to load bookings at the moment. Please try again.' });
   }
-});
+}));
 
-router.delete('/:receiptId', authMiddleware, async (req: AuthenticatedRequest, res) => {
+router.delete('/:receiptId', authMiddleware, asyncHandler(async (req: AuthenticatedRequest, res) => {
   const email = req.user?.email;
   if (!email) {
     res.status(401).json({ error: 'Authorization token is required.' });
@@ -85,9 +96,9 @@ router.delete('/:receiptId', authMiddleware, async (req: AuthenticatedRequest, r
     console.error('[bookings] Unable to cancel booking.', error);
     res.status(500).json({ error: 'Unable to cancel booking. Please try again.' });
   }
-});
+}));
 
-router.patch('/:receiptId/reschedule', authMiddleware, async (req: AuthenticatedRequest, res) => {
+router.patch('/:receiptId/reschedule', authMiddleware, asyncHandler(async (req: AuthenticatedRequest, res) => {
   const email = req.user?.email;
   const { selectedDate, selectedTime } = req.body as { selectedDate?: string; selectedTime?: string };
   if (!email) {
@@ -129,10 +140,11 @@ router.patch('/:receiptId/reschedule', authMiddleware, async (req: Authenticated
     console.error('[bookings] Unable to reschedule booking.', error);
     res.status(500).json({ error: 'Unable to reschedule booking. Please try again.' });
   }
-});
+}));
 
-// POST /api/bookings/mock (requires Bearer token; development fallback only)
-router.post('/mock', authMiddleware, async (req: AuthenticatedRequest, res) => {
+// Mock Pay for a court booking: confirms the booking without Stripe. Reached only through
+// POST /api/payments/mock { type: 'court', ... }, which checks MOCK_PAYMENT_ENABLED and the login first.
+export async function createMockCourtBooking(req: AuthenticatedRequest, res: Response): Promise<void> {
   const customerEmail = req.user?.email?.trim().toLowerCase();
   if (!customerEmail) {
     res.status(401).json({ error: 'Authorization token is required.' });
@@ -196,6 +208,7 @@ router.post('/mock', authMiddleware, async (req: AuthenticatedRequest, res) => {
       facilityImageKey: toFacilityImageKey(payload.facilityImageKey),
       facilityTag: payload.facilityTag?.trim() || null,
       lockToken: payload.lockToken ?? null,
+      stripePaymentIntentId: null,
     });
   } catch (error) {
     if (error instanceof FacilityUnavailableError) {
@@ -224,10 +237,10 @@ router.post('/mock', authMiddleware, async (req: AuthenticatedRequest, res) => {
   });
 
   res.json({ receiptId: payload.receiptId, status: 'success', paymentMethod: 'ONLINE' });
-});
+}
 
 // POST /api/bookings  (requires Bearer token)
-router.post('/', authMiddleware, async (req: AuthenticatedRequest, res) => {
+router.post('/', authMiddleware, asyncHandler(async (req: AuthenticatedRequest, res) => {
   const {
     bookingType, sportId, facilityCode, selectedDate, selectedTime, durationMins,
     packageOption, payMethod, grandTotal, receiptId, customerEmail: bodyCustomerEmail,
@@ -272,6 +285,11 @@ router.post('/', authMiddleware, async (req: AuthenticatedRequest, res) => {
   if (!Number.isFinite(grandTotal) || grandTotal < 0) missingFields.push('grandTotal');
   if (customerEmail && !EMAIL_RE.test(customerEmail)) missingFields.push('customerEmail(valid format)');
   if (!sportId || !facilityCode) missingFields.push('sportId', 'facilityCode');
+
+  if (payMethod && !SUPPORTED_PAY_METHODS.has(payMethod)) {
+    res.status(400).json({ error: 'Unsupported payment method.' });
+    return;
+  }
 
   if (missingFields.length > 0) {
     res.status(400).json({
@@ -319,27 +337,16 @@ router.post('/', authMiddleware, async (req: AuthenticatedRequest, res) => {
         expand: ['payment_method'],
       });
 
-      if (intent.status !== 'succeeded') {
-        res.status(402).json({
-          error: 'Stripe payment is not completed. Please complete card payment first.',
-        });
-        return;
-      }
-
-      const expectedAmount = toMinorCurrencyUnits(pricing.grandTotal);
-      const paidAmount = intent.amount_received || intent.amount || 0;
-      if (paidAmount !== expectedAmount) {
-        res.status(400).json({
-          error: 'Stripe paid amount does not match booking total.',
-        });
-        return;
-      }
-
-      const intentEmail = intent.receipt_email?.trim().toLowerCase() || intent.metadata.customerEmail?.trim().toLowerCase() || '';
-      if (intentEmail && intentEmail !== resolvedCustomerEmail) {
-        res.status(403).json({
-          error: 'Stripe payment does not belong to the authenticated customer.',
-        });
+      // Checkout creates each payment with the booking's receipt id, and receipt ids are unique,
+      // so a payment can only ever pay for the one booking it was made for.
+      const failure = verifyStripeIntent(intent, {
+        amountMajor: pricing.grandTotal,
+        customerEmail: resolvedCustomerEmail,
+        metadata: { receiptId },
+      });
+      if (failure) {
+        const [status, error] = STRIPE_FAILURE_RESPONSES[failure];
+        res.status(status).json({ error });
         return;
       }
 
@@ -356,11 +363,6 @@ router.post('/', authMiddleware, async (req: AuthenticatedRequest, res) => {
       res.status(502).json({ error: 'Unable to verify card payment. Please contact support if the charge was completed.' });
       return;
     }
-  } else {
-    const paymentSuccessful = Math.random() < 0.9;
-    responseStatus = paymentSuccessful ? 'success' : 'cash';
-    bookingStatus = paymentSuccessful ? 'confirmed' : 'cash_pending';
-    paymentMethod = paymentSuccessful ? 'ONLINE' : 'CASH';
   }
 
   try {
@@ -383,10 +385,15 @@ router.post('/', authMiddleware, async (req: AuthenticatedRequest, res) => {
       facilityImageKey: toFacilityImageKey(facilityImageKey),
       facilityTag: facilityTag?.trim() || null,
       lockToken: lockToken ?? null,
+      stripePaymentIntentId: stripePaymentIntentId?.trim() || null,
     });
   } catch (error) {
     if (error instanceof FacilityUnavailableError) {
       res.status(400).json({ error: error.message });
+      return;
+    }
+    if (error instanceof PaymentAlreadyUsedError) {
+      res.status(409).json({ error: 'This payment has already been used for another booking.' });
       return;
     }
     if (error instanceof SlotAlreadyBookedError) {
@@ -429,6 +436,6 @@ router.post('/', authMiddleware, async (req: AuthenticatedRequest, res) => {
     cardBrand,
     cardLast4,
   });
-});
+}));
 
 export default router;
