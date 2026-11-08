@@ -1,4 +1,4 @@
-import { afterEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import {
   announce,
   copyText,
@@ -98,29 +98,77 @@ describe('rollingDates', () => {
   });
 });
 
-describe('rollingDatesForMonths', () => {
-  it('returns every day from today up to the same day next month', () => {
-    setNow('2026-11-01T02:00:00Z');
-    const dates = rollingDatesForMonths(1).map(toISO);
-    expect(dates).toHaveLength(30);
-    expect(dates[0]).toBe('2026-11-01');
-    expect(dates.at(-1)).toBe('2026-11-30');
+// Calendar facts worked out on their own (UTC has no daylight saving), so the tests don't
+// depend on hand-counted lengths: months have 28, 29, 30 or 31 days.
+function daysInMonth(year: number, monthIndex: number): number {
+  return new Date(Date.UTC(year, monthIndex + 1, 0)).getUTCDate();
+}
+
+function isoDate(year: number, monthIndex: number, day: number): string {
+  return new Date(Date.UTC(year, monthIndex, day)).toISOString().slice(0, 10);
+}
+
+function nextIsoDay(iso: string): string {
+  const [year, month, day] = iso.split('-').map(Number);
+  return isoDate(year, month - 1, day + 1);
+}
+
+function expectConsecutiveDays(dates: string[], label: string) {
+  for (let i = 1; i < dates.length; i += 1) {
+    expect(dates[i], `${label}: entry ${i}`).toBe(nextIsoDay(dates[i - 1]));
+  }
+}
+
+// An ordinary year and a leap year, on the first, middle and 28th of every month. Days 29-31 are
+// left out on purpose: "the same date next month" doesn't exist for them (e.g. 31 Jan -> 31 Feb).
+const MONTH_START_DATES = [2026, 2028].flatMap((year) =>
+  Array.from({ length: 12 }, (_, monthIndex) => [1, 15, 28].map((day) => ({ year, monthIndex, day }))).flat());
+
+// Customers (and CI) may run in any time zone; the booking calendar must still follow Singapore days.
+describe.each(['Asia/Singapore', 'UTC', 'America/New_York'])('date lists when the browser is in %s', (timeZone) => {
+  const originalTz = process.env.TZ;
+
+  beforeEach(() => {
+    process.env.TZ = timeZone;
   });
 
-  it('covers 3 months by default', () => {
-    setNow('2026-01-01T02:00:00Z');
-    const dates = rollingDatesForMonths().map(toISO);
-    expect(dates[0]).toBe('2026-01-01');
-    expect(dates.at(-1)).toBe('2026-03-31');
-    expect(dates).toHaveLength(90);
+  afterEach(() => {
+    // Assigning undefined would store the text "undefined", so remove the setting instead.
+    if (originalTz === undefined) delete process.env.TZ;
+    else process.env.TZ = originalTz;
   });
 
-  it('has no duplicate or missing days', () => {
-    setNow('2026-02-15T02:00:00Z');
-    const dates = rollingDatesForMonths(2).map(toISO);
-    expect(new Set(dates).size).toBe(dates.length);
-    expect(dates).toContain('2026-02-28');
-    expect(dates).toContain('2026-03-01');
+  it.each([1, 2, 3])('rollingDatesForMonths(%i) covers every day up to the same date that many months later', (months) => {
+    for (const { year, monthIndex, day } of MONTH_START_DATES) {
+      const today = isoDate(year, monthIndex, day);
+      setNow(`${today}T02:00:00Z`); // 10:00 in Singapore
+      const dates = rollingDatesForMonths(months).map(toISO);
+
+      // From day D of one month to day D of the next is exactly that month's length.
+      const expectedLength = Array.from({ length: months }, (_, i) => daysInMonth(year, monthIndex + i))
+        .reduce((sum, length) => sum + length, 0);
+
+      expect(dates, `starting ${today}`).toHaveLength(expectedLength);
+      expect(dates[0], `starting ${today}`).toBe(today);
+      expect(nextIsoDay(dates.at(-1)!), `starting ${today}`).toBe(isoDate(year, monthIndex + months, day));
+      expectConsecutiveDays(dates, `starting ${today}`);
+    }
+  });
+
+  it('rollingDatesForMonths covers 3 months by default', () => {
+    setNow('2028-02-15T02:00:00Z');
+    expect(rollingDatesForMonths().map(toISO)).toEqual(rollingDatesForMonths(3).map(toISO));
+  });
+
+  it('rollingDates gives one entry per Singapore day from any day of the year, including daylight-saving changes', () => {
+    for (let dayOfYear = 0; dayOfYear < 365; dayOfYear += 1) {
+      const today = isoDate(2026, 0, 1 + dayOfYear);
+      setNow(`${today}T02:00:00Z`);
+      const dates = rollingDates(14).map(toISO);
+      expect(dates, `starting ${today}`).toHaveLength(14);
+      expect(dates[0], `starting ${today}`).toBe(today);
+      expectConsecutiveDays(dates, `starting ${today}`);
+    }
   });
 });
 
