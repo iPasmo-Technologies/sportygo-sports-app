@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useState, useRef } from 'react';
 import {
   CalendarDays,
   ChevronRight,
@@ -13,9 +13,11 @@ import {
   Save,
   X,
   Edit,
+  Camera,
+  Image,
 } from 'lucide-react';
 import { useApp } from '@/context/AppContext';
-import { ApiError, fetchProfile, updateProfile } from '@/lib/api';
+import { ApiError, fetchProfile, updateProfile, updateProfilePhoto } from '@/lib/api';
 import { clearRememberedAuth } from '@/lib/rememberedAuth';
 import { announce } from '@/lib/utils';
 import ScreenHeader from '@/components/ScreenHeader';
@@ -44,6 +46,9 @@ export default function ProfileScreen() {
   const [editMode, setEditMode] = useState(false);
   const [formData, setFormData] = useState({ fullName: '', mobileNumber: '' });
   const [saving, setSaving] = useState(false);
+  const [photoSaving, setPhotoSaving] = useState(false);
+  const [photoPreview, setPhotoPreview] = useState<string | null>(null);
+  const fileInputRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
     if (!state.authToken) {
@@ -129,11 +134,91 @@ export default function ProfileScreen() {
     }
   }
 
+  async function handlePhotoUpload(file: File) {
+    if (!state.authToken || !profile) return;
+
+    // Validate file type
+    if (!file.type.startsWith('image/')) {
+      setError('Please select a valid image file.');
+      return;
+    }
+
+    // Validate file size (max 5MB)
+    if (file.size > 5 * 1024 * 1024) {
+      setError('Image size must be less than 5MB.');
+      return;
+    }
+
+    setError(null);
+    setSuccess(null);
+    setPhotoSaving(true);
+
+    try {
+      // Convert file to base64
+      const base64 = await new Promise<string>((resolve, reject) => {
+        const reader = new FileReader();
+        reader.onload = () => resolve(reader.result as string);
+        reader.onerror = reject;
+        reader.readAsDataURL(file);
+      });
+
+      const updatedProfile = await updateProfilePhoto(state.authToken, base64);
+      setProfile(updatedProfile);
+      setPhotoPreview(null);
+      setSuccess('Profile photo updated successfully.');
+      announce('Profile photo updated successfully.');
+    } catch (err) {
+      const message = err instanceof Error ? err.message : 'Unable to update profile photo. Please try again.';
+      setError(message);
+    } finally {
+      setPhotoSaving(false);
+    }
+  }
+
+  async function handleRemovePhoto() {
+    if (!state.authToken || !profile) return;
+
+    setError(null);
+    setSuccess(null);
+    setPhotoSaving(true);
+
+    try {
+      const updatedProfile = await updateProfilePhoto(state.authToken, null);
+      setProfile(updatedProfile);
+      setPhotoPreview(null);
+      setSuccess('Profile photo removed successfully.');
+      announce('Profile photo removed successfully.');
+    } catch (err) {
+      const message = err instanceof Error ? err.message : 'Unable to remove profile photo. Please try again.';
+      setError(message);
+    } finally {
+      setPhotoSaving(false);
+    }
+  }
+
+  function handleFileSelect(event: React.ChangeEvent<HTMLInputElement>) {
+    const file = event.target.files?.[0];
+    if (file) {
+      const preview = URL.createObjectURL(file);
+      setPhotoPreview(preview);
+      handlePhotoUpload(file);
+    }
+  }
+
+  function handlePhotoPreviewClick() {
+    fileInputRef.current?.click();
+  }
+
   function handleInputChange(field: 'fullName' | 'mobileNumber', value: string) {
     setFormData(prev => ({ ...prev, [field]: value }));
   }
 
   const displayName = profile?.fullName ?? 'SportyGo Member';
+  const avatarContent = photoPreview || profile?.profilePhoto ? (
+    <img src={photoPreview || profile?.profilePhoto!} alt={`${displayName}'s profile photo`} className="profile-avatar-image" />
+  ) : (
+    initialsFor(displayName)
+  );
 
   return (
     <div className="page-container page-container--immersive screen-fade-enter">
@@ -168,7 +253,7 @@ export default function ProfileScreen() {
         ) : profile ? (
           <>
             <section className="profile-identity" aria-labelledby="profile-name">
-              <div className="profile-avatar" aria-hidden="true">{initialsFor(displayName)}</div>
+              <div className="profile-avatar" aria-hidden="true">{avatarContent}</div>
               <div>
                 <span className="profile-member-label">SportyGo Member</span>
                 <h2 id="profile-name">{displayName}</h2>
@@ -202,6 +287,42 @@ export default function ProfileScreen() {
 
               {editMode ? (
                 <form onSubmit={(e) => { e.preventDefault(); handleSaveEdit(); }} className="profile-edit-form">
+                  <div className="profile-edit-field profile-photo-field">
+                    <label><Camera size={18} /> Profile Photo</label>
+                    <div className="profile-photo-upload">
+                      <div className="profile-photo-preview" onClick={handlePhotoPreviewClick} role="button" tabIndex={0} onKeyDown={e => { if (e.key === 'Enter' || e.key === ' ') handlePhotoPreviewClick(); }}>
+                        {photoPreview || profile?.profilePhoto ? (
+                          <img src={photoPreview || profile?.profilePhoto!} alt={`${displayName}'s profile photo`} className="profile-photo-image" />
+                        ) : (
+                          <>
+                            <Image size={32} strokeWidth={1.5} className="profile-photo-placeholder" aria-hidden="true" />
+                            <span className="profile-photo-text">Add Photo</span>
+                          </>
+                        )}
+                        <input
+                          ref={fileInputRef}
+                          type="file"
+                          accept="image/*"
+                          onChange={handleFileSelect}
+                          className="profile-photo-input"
+                          disabled={photoSaving}
+                          aria-label="Upload profile photo"
+                        />
+                        {(photoPreview || profile?.profilePhoto) && !photoSaving && (
+                          <button
+                            type="button"
+                            className="profile-photo-remove"
+                            onClick={handleRemovePhoto}
+                            aria-label="Remove profile photo"
+                          >
+                            <X size={18} strokeWidth={2.5} />
+                          </button>
+                        )}
+                        {photoSaving && <div className="profile-photo-spinner"><Spinner variant="muted" /></div>}
+                      </div>
+                      <p className="profile-photo-hint">Click to upload a photo (max 5MB). Supported formats: JPG, PNG, WebP.</p>
+                    </div>
+                  </div>
                   <div className="profile-edit-field">
                     <label htmlFor="edit-fullName"><UserRound size={18} /> Full name</label>
                     <input

@@ -1,6 +1,6 @@
 import { Router } from 'express';
 import jwt from 'jsonwebtoken';
-import { completePasswordReset, countUsersByMobileNumber, createUserPasswordAccount, extendPasswordResetExpiry, findUserByEmail, findUserByEmailOrMobile, listAllUsersForAdmin, savePasswordResetCode, updateUserProfile, verifyPasswordResetCode } from '../lib/database';
+import { completePasswordReset, countUsersByMobileNumber, createUserPasswordAccount, extendPasswordResetExpiry, findUserByEmail, findUserByEmailOrMobile, listAllUsersForAdmin, savePasswordResetCode, updateUserProfile, updateUserProfilePhoto, verifyPasswordResetCode } from '../lib/database';
 import { decryptClientPasswordPayload, decryptPasswordAtRest, encryptPasswordAtRest } from '../lib/authCrypto';
 import { sendPasswordResetPasscode, sendWelcomeEmail } from '../lib/email';
 import { authMiddleware, requireAdminRole, type AuthenticatedRequest } from '../middleware/authMiddleware';
@@ -39,6 +39,7 @@ router.get('/profile', authMiddleware, async (req: AuthenticatedRequest, res) =>
     fullName: user.fullName,
     email: user.email,
     mobileNumber: user.mobileNumber,
+    profilePhoto: user.profilePhoto,
   });
 });
 
@@ -81,6 +82,39 @@ router.put('/profile', authMiddleware, async (req: AuthenticatedRequest, res) =>
     });
   } catch (error) {
     const message = error instanceof Error ? error.message : 'Unable to update profile.';
+    res.status(400).json({ error: message });
+  }
+});
+
+// PUT /api/auth/profile/photo — update user profile photo
+router.put('/profile/photo', authMiddleware, async (req: AuthenticatedRequest, res) => {
+  const { profilePhoto } = req.body as { profilePhoto?: string | null };
+  const userEmail = req.user?.email;
+
+  if (!userEmail) {
+    res.status(401).json({ error: 'Authentication required.' });
+    return;
+  }
+
+  try {
+    const updatedUser = await updateUserProfilePhoto({
+      email: userEmail,
+      profilePhoto: profilePhoto ?? null,
+    });
+
+    if (!updatedUser) {
+      res.status(404).json({ error: 'Account profile was not found.' });
+      return;
+    }
+
+    res.json({
+      fullName: updatedUser.fullName,
+      email: updatedUser.email,
+      mobileNumber: updatedUser.mobileNumber,
+      profilePhoto: updatedUser.profilePhoto,
+    });
+  } catch (error) {
+    const message = error instanceof Error ? error.message : 'Unable to update profile photo.';
     res.status(400).json({ error: message });
   }
 });

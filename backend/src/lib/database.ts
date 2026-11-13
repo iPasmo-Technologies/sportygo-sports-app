@@ -159,6 +159,7 @@ export type UserAuthRow = {
   role: 'public' | 'coach' | 'admin';
   passwordResetCode?: string | null;
   passwordResetExpiresAt?: string | null;
+  profilePhoto?: string | null;
 };
 
 export type AdminUserRow = {
@@ -714,6 +715,11 @@ async function ensureSchema(client: PoolClient): Promise<void> {
   await client.query(`
     ALTER TABLE users
     ALTER COLUMN password_encrypted SET NOT NULL
+  `);
+
+  await client.query(`
+    ALTER TABLE users
+    ADD COLUMN IF NOT EXISTS profile_photo TEXT
   `);
 
   await client.query(`
@@ -2356,7 +2362,8 @@ export async function findUserByEmail(email: string): Promise<UserAuthRow | null
             password_reset_code AS "passwordResetCode",
             password_reset_expires_at::text AS "passwordResetExpiresAt",
             auth_provider AS "authProvider",
-            role
+            role,
+            profile_photo AS "profilePhoto"
      FROM users
      WHERE deleted_at IS NULL
        AND LOWER(email) = LOWER($1)
@@ -2412,10 +2419,11 @@ export async function findUserByEmailOrMobile(loginId: string): Promise<UserAuth
             full_name AS "fullName",
             mobile_number AS "mobileNumber",
             password_encrypted AS "passwordEncrypted",
-                 password_reset_code AS "passwordResetCode",
-                 password_reset_expires_at::text AS "passwordResetExpiresAt",
+            password_reset_code AS "passwordResetCode",
+            password_reset_expires_at::text AS "passwordResetExpiresAt",
             auth_provider AS "authProvider",
-            role
+            role,
+            profile_photo AS "profilePhoto"
      FROM users
      WHERE deleted_at IS NULL
        AND (
@@ -2553,8 +2561,53 @@ export async function updateUserProfile(input: {
                password_reset_code AS "passwordResetCode",
                password_reset_expires_at::text AS "passwordResetExpiresAt",
                auth_provider AS "authProvider",
-               role`,
+               role,
+               profile_photo AS "profilePhoto"`,
     [normalizedEmail, normalizedFullName, normalizedMobileNumber]
+  );
+
+  return rows[0] ?? null;
+}
+
+export async function updateUserProfilePhoto(input: {
+  email: string;
+  profilePhoto: string | null;
+}): Promise<UserAuthRow | null> {
+  const normalizedEmail = input.email.trim().toLowerCase();
+
+  if (!pool) {
+    const existing = await findUserByEmail(normalizedEmail);
+    if (!existing) {
+      return null;
+    }
+
+    const updated: UserAuthRow = {
+      ...existing,
+      profilePhoto: input.profilePhoto,
+    };
+
+    fallbackUsers.set(normalizedEmail, updated);
+    return updated;
+  }
+
+  const rows = await query<UserAuthRow>(
+    `UPDATE users
+     SET profile_photo = $2,
+         updated_at = NOW(),
+         updated_by = email
+     WHERE deleted_at IS NULL
+       AND LOWER(email) = LOWER($1)
+     RETURNING id,
+               email,
+               full_name AS "fullName",
+               mobile_number AS "mobileNumber",
+               password_encrypted AS "passwordEncrypted",
+               password_reset_code AS "passwordResetCode",
+               password_reset_expires_at::text AS "passwordResetExpiresAt",
+               auth_provider AS "authProvider",
+               role,
+               profile_photo AS "profilePhoto"`,
+    [normalizedEmail, input.profilePhoto]
   );
 
   return rows[0] ?? null;
@@ -2583,6 +2636,7 @@ export async function createUserPasswordAccount(input: {
       role: 'public',
       passwordResetCode: null,
       passwordResetExpiresAt: null,
+      profilePhoto: null,
     };
 
     fallbackUsers.set(key, user);
@@ -2609,7 +2663,8 @@ export async function createUserPasswordAccount(input: {
                password_reset_code AS "passwordResetCode",
                password_reset_expires_at::text AS "passwordResetExpiresAt",
                auth_provider AS "authProvider",
-               role`,
+               role,
+               profile_photo AS "profilePhoto"`,
     [input.email, input.fullName, input.mobileNumber, input.passwordEncrypted]
   );
 

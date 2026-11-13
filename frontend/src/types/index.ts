@@ -208,6 +208,7 @@ export interface ProfileResponse {
   fullName: string;
   email: string;
   mobileNumber: string;
+  profilePhoto?: string | null;
 }
 
 export interface RegisterPayload {
