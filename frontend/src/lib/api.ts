@@ -229,6 +229,14 @@ export async function updateProfile(token: string, fullName: string, mobileNumbe
   });
 }
 
+export async function updateProfilePhoto(token: string, profilePhoto: string | null): Promise<ProfileResponse> {
+  return request<ProfileResponse>('/api/auth/profile/photo', {
+    method: 'PUT',
+    headers: { Authorization: `Bearer ${token}` },
+    body: JSON.stringify({ profilePhoto }),
+  });
+}
+
 export async function registerUser(payload: RegisterPayload): Promise<LoginResponse> {
   const encryptedPassword = await encryptPasswordForTransport(payload.password);
 
