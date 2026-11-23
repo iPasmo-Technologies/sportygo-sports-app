@@ -24,6 +24,7 @@ app.use(errorHandler);
 const EMAIL = 'user@example.com';
 const TOKEN = jwt.sign({ email: EMAIL, role: 'public' }, SECRET, { expiresIn: '1h' });
 const VALID = { fullName: 'Ana Tan', mobileNumber: '+6591234567' };
+const MOBILE_ERROR = 'Enter a valid Singapore mobile (8 digits, starting with 8 or 9) or Indian mobile (10 digits, starting with 6 to 9).';
 
 function putProfile(body: unknown, token: string | null = TOKEN) {
   const req = request(app).put('/api/auth/profile').send(body as object).timeout(3000);
@@ -53,6 +54,18 @@ describe('PUT /api/auth/profile - success', () => {
     expect(res.body).toEqual({ fullName: 'Ana Tan', email: EMAIL, mobileNumber: '+6591234567' });
   });
 
+  it('saves a local Singapore number in the +65 format', async () => {
+    const res = await putProfile({ ...VALID, mobileNumber: '9123 4567' });
+    expect(res.status).toBe(200);
+    expect(updateUserProfile).toHaveBeenCalledWith({ email: EMAIL, fullName: 'Ana Tan', mobileNumber: '+6591234567' });
+  });
+
+  it('saves an Indian number in the +91 format', async () => {
+    const res = await putProfile({ ...VALID, mobileNumber: '91234 56789' });
+    expect(res.status).toBe(200);
+    expect(updateUserProfile).toHaveBeenCalledWith({ email: EMAIL, fullName: 'Ana Tan', mobileNumber: '+919123456789' });
+  });
+
   it('only ever updates the logged-in account, ignoring an email in the body', async () => {
     await putProfile({ ...VALID, email: 'victim@example.com' });
     expect(updateUserProfile).toHaveBeenCalledWith({ email: EMAIL, fullName: 'Ana Tan', mobileNumber: '+6591234567' });
@@ -76,9 +89,13 @@ describe('PUT /api/auth/profile - invalid input (400, nothing saved)', () => {
     ['101-character name', { ...VALID, fullName: 'a'.repeat(101) }, 'Name must be at most 100 characters.'],
     ['missing mobile', { fullName: VALID.fullName }, 'Mobile number is required.'],
     ['mobile that is a number', { ...VALID, mobileNumber: 6591234567 }, 'Mobile number is required.'],
-    ['mobile with letters', { ...VALID, mobileNumber: '+65abc4567' }, 'Enter a valid mobile number.'],
-    ['mobile too short', { ...VALID, mobileNumber: '1234567' }, 'Enter a valid mobile number.'],
-    ['mobile too long', { ...VALID, mobileNumber: '1234567890123456' }, 'Enter a valid mobile number.'],
+    ['mobile with letters', { ...VALID, mobileNumber: '+65abc4567' }, MOBILE_ERROR],
+    ['mobile too short', { ...VALID, mobileNumber: '1234567' }, MOBILE_ERROR],
+    ['mobile too long', { ...VALID, mobileNumber: '1234567890123456' }, MOBILE_ERROR],
+    ['mobile of all zeros', { ...VALID, mobileNumber: '00000000' }, MOBILE_ERROR],
+    ['the signup placeholder mobile', { ...VALID, mobileNumber: '+6500000000' }, MOBILE_ERROR],
+    ['a Singapore landline', { ...VALID, mobileNumber: '61234567' }, MOBILE_ERROR],
+    ['a mobile from another country', { ...VALID, mobileNumber: '+449123456789' }, MOBILE_ERROR],
   ])('%s', async (_name, body, error) => {
     const res = await putProfile(body);
     expect(res.status).toBe(400);

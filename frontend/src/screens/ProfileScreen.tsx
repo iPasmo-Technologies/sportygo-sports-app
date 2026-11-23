@@ -17,6 +17,7 @@ import {
 import { useApp } from '@/context/AppContext';
 import { ApiError, fetchProfile, updateProfile } from '@/lib/api';
 import { hasContactDetailsForCoaching } from '@/lib/coaching';
+import { isValidMobileNumber, MOBILE_ERROR } from '@/lib/mobileNumber';
 import { clearRememberedAuth } from '@/lib/rememberedAuth';
 import { announce } from '@/lib/utils';
 import ScreenHeader from '@/components/ScreenHeader';
@@ -109,6 +110,11 @@ export default function ProfileScreen() {
     // Check if there are any actual changes
     if (trimmedFullName === profile.fullName && trimmedMobileNumber === profile.mobileNumber) {
       setError('No changes detected. Please modify the fields before saving.');
+      return;
+    }
+
+    if (!isValidMobileNumber(trimmedMobileNumber)) {
+      setError(MOBILE_ERROR);
       return;
     }
 
@@ -250,6 +256,7 @@ export default function ProfileScreen() {
                       required
                       disabled={saving}
                       autoComplete="tel"
+                      placeholder="e.g. 9123 4567"
                     />
                   </div>
                   <div className="profile-edit-field">
