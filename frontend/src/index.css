@@ -6552,6 +6552,10 @@ input { font-family: inherit; }
   .coach-balance-panel button:focus-visible { transform: none; }
 }
 
+/* Missing-details notice on Coaching Terms: the message is long, so it wraps above its button. */
+.coach-details-required { flex-wrap: wrap; margin-bottom: var(--space-md); }
+.coach-details-required span { flex: 1 1 200px; }
+
 .coach-summary-list { display: grid; gap: var(--space-xs); margin: 0 0 var(--space-md); }
 .coach-summary-list > div { display: flex; justify-content: space-between; gap: var(--space-md); font-size: 0.82rem; }
 .coach-summary-list dt { color: var(--muted); }

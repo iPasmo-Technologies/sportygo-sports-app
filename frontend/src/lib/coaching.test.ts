@@ -10,6 +10,7 @@ import {
   groupSessionsByDate,
   hasContactDetailsForCoaching,
   isRetryableError,
+  missingContactDetailsMessage,
   noPackagesMessage,
   pickCoachImage,
   pricePerSession,
@@ -135,6 +136,24 @@ describe('hasContactDetailsForCoaching', () => {
     expect(hasContactDetailsForCoaching({ fullName: 'Jane Tan', mobileNumber: '+6500000000' })).toBe(false);
     expect(hasContactDetailsForCoaching({ fullName: '  ', mobileNumber: '+6591234567' })).toBe(false);
     expect(hasContactDetailsForCoaching({ fullName: 'Jane Tan', mobileNumber: '' })).toBe(false);
+  });
+});
+
+describe('missingContactDetailsMessage', () => {
+  it('returns null when the profile is complete', () => {
+    expect(missingContactDetailsMessage({ fullName: 'Jane Tan', mobileNumber: '+6591234567' })).toBeNull();
+  });
+
+  it('names only the detail that is missing', () => {
+    expect(missingContactDetailsMessage({ fullName: 'User', mobileNumber: '+6591234567' }))
+      .toBe('Your full name is required to buy a coaching package. Please update it in your Profile, and we will bring you back here to continue.');
+    expect(missingContactDetailsMessage({ fullName: 'Jane Tan', mobileNumber: '+6500000000' }))
+      .toBe('Your mobile number is required to buy a coaching package. Please update it in your Profile, and we will bring you back here to continue.');
+  });
+
+  it('names both details when both are missing', () => {
+    expect(missingContactDetailsMessage({ fullName: ' ', mobileNumber: '+6500000000' }))
+      .toBe('Your full name and mobile number are required to buy a coaching package. Please update them in your Profile, and we will bring you back here to continue.');
   });
 });
 

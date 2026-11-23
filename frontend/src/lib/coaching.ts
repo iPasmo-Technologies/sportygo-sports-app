@@ -112,6 +112,20 @@ export function hasContactDetailsForCoaching(profile: Pick<ProfileResponse, 'ful
     && mobileNumber.length > 0 && mobileNumber !== PLACEHOLDER_MOBILE_NUMBER;
 }
 
+// Tells the user exactly which detail is missing, so the Terms screen can explain why payment is locked.
+export function missingContactDetailsMessage(profile: Pick<ProfileResponse, 'fullName' | 'mobileNumber'>): string | null {
+  const fullName = profile.fullName.trim();
+  const mobileNumber = profile.mobileNumber.trim();
+  const missing: string[] = [];
+  if (fullName.length === 0 || fullName === PLACEHOLDER_FULL_NAME) missing.push('full name');
+  if (mobileNumber.length === 0 || mobileNumber === PLACEHOLDER_MOBILE_NUMBER) missing.push('mobile number');
+  if (missing.length === 0) return null;
+
+  const plural = missing.length > 1;
+  return `Your ${missing.join(' and ')} ${plural ? 'are' : 'is'} required to buy a coaching package. `
+    + `Please update ${plural ? 'them' : 'it'} in your Profile, and we will bring you back here to continue.`;
+}
+
 // ─── Navigation guard ────────────────────────────────────────
 
 export type CoachGuardState = {

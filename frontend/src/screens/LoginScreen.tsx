@@ -9,6 +9,7 @@ import ErrorBanner from '@/components/ErrorBanner';
 import Spinner from '@/components/Spinner';
 import logoImage from '@/assets/logo.png';
 import loginBackground from '@/assets/home_bk.png';
+import { isValidMobileNumber, MOBILE_ERROR } from '@/lib/mobileNumber';
 
 const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 const MOBILE_RE = /^\+?[0-9]{8,15}$/;
@@ -83,8 +84,8 @@ export default function LoginScreen() {
 
     if (!mobile.trim()) {
       setMobileErr('Mobile number is required.'); valid = false;
-    } else if (!MOBILE_RE.test(mobile.trim())) {
-      setMobileErr('Enter a valid mobile number (8-15 digits).'); valid = false;
+    } else if (!isValidMobileNumber(mobile)) {
+      setMobileErr(MOBILE_ERROR); valid = false;
     } else {
       setMobileErr('');
     }
@@ -171,7 +172,7 @@ export default function LoginScreen() {
   }
 
   const isLoginValid = !!email.trim() && (EMAIL_RE.test(email.trim()) || MOBILE_RE.test(email.trim())) && password.length >= 8;
-  const isRegisterValid = !!name.trim() && MOBILE_RE.test(mobile.trim()) && EMAIL_RE.test(email.trim()) && password.length >= 8;
+  const isRegisterValid = !!name.trim() && isValidMobileNumber(mobile) && EMAIL_RE.test(email.trim()) && password.length >= 8;
 
   return (
     <div className="page-container page-container--immersive screen-fade-enter">
@@ -280,7 +281,7 @@ export default function LoginScreen() {
                     id="inp-mobile"
                     type="tel"
                     className="login-input"
-                    placeholder="e.g. +6591234567"
+                    placeholder="e.g. 9123 4567"
                     autoComplete="tel"
                     value={mobile}
                     onChange={e => setMobile(e.target.value)}

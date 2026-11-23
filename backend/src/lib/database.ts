@@ -12,6 +12,7 @@ import {
   singaporeDateOf,
 } from './coaching';
 import { applyDataMigrations } from './dataMigrations';
+import { mobileLookupValues } from './mobileNumber';
 
 export type PackageRow = {
   id: string;
@@ -2664,8 +2665,9 @@ export async function findUserByEmailOrMobile(loginId: string): Promise<UserAuth
       return fallbackByEmail;
     }
 
+    const mobileValues = mobileLookupValues(normalizedLoginId);
     for (const user of fallbackUsers.values()) {
-      if (user.mobileNumber.trim().toLowerCase() === normalizedLoginId) {
+      if (mobileValues.includes(user.mobileNumber.trim())) {
         return user;
       }
     }
@@ -2687,22 +2689,22 @@ export async function findUserByEmailOrMobile(loginId: string): Promise<UserAuth
      WHERE deleted_at IS NULL
        AND (
          LOWER(email) = LOWER($1)
-         OR LOWER(mobile_number) = LOWER($1)
+         OR mobile_number = ANY($2::text[])
        )
      LIMIT 1`,
-    [normalizedLoginId]
+    [normalizedLoginId, mobileLookupValues(normalizedLoginId)]
   );
 
   return rows[0] ?? null;
 }
 
 export async function countUsersByMobileNumber(mobileNumber: string): Promise<number> {
-  const normalizedMobile = mobileNumber.trim().toLowerCase();
+  const mobileValues = mobileLookupValues(mobileNumber);
 
   if (!pool) {
     let count = 0;
     for (const user of fallbackUsers.values()) {
-      if (user.mobileNumber.trim().toLowerCase() === normalizedMobile) {
+      if (mobileValues.includes(user.mobileNumber.trim())) {
         count++;
       }
     }
@@ -2713,8 +2715,8 @@ export async function countUsersByMobileNumber(mobileNumber: string): Promise<nu
     `SELECT COUNT(*) as count
      FROM users
      WHERE deleted_at IS NULL
-       AND LOWER(mobile_number) = LOWER($1)`,
-    [normalizedMobile]
+       AND mobile_number = ANY($1::text[])`,
+    [mobileValues]
   );
 
   return parseInt(result[0]?.count ?? '0', 10);

@@ -6,6 +6,7 @@ import { decryptClientPasswordPayload, decryptPasswordAtRest, encryptPasswordAtR
 import { sendPasswordResetPasscode, sendWelcomeEmail } from '../lib/email';
 import { authMiddleware, requireAdminRole, type AuthenticatedRequest } from '../middleware/authMiddleware';
 import { getJwtSecret } from '../lib/jwtSecret';
+import { MOBILE_ERROR, normalizeMobileNumber } from '../lib/mobileNumber';
 
 const router = Router();
 
@@ -75,8 +76,9 @@ router.put('/profile', authMiddleware, asyncHandler(async (req: AuthenticatedReq
     res.status(400).json({ error: 'Mobile number is required.' });
     return;
   }
-  if (!MOBILE_RE.test(normalizedMobile)) {
-    res.status(400).json({ error: 'Enter a valid mobile number.' });
+  const standardMobile = normalizeMobileNumber(normalizedMobile);
+  if (!standardMobile) {
+    res.status(400).json({ error: MOBILE_ERROR });
     return;
   }
 
@@ -85,7 +87,7 @@ router.put('/profile', authMiddleware, asyncHandler(async (req: AuthenticatedReq
   const updatedUser = await updateUserProfile({
     email: userEmail,
     fullName: normalizedName,
-    mobileNumber: normalizedMobile,
+    mobileNumber: standardMobile,
   });
 
   if (!updatedUser) {
@@ -173,15 +175,15 @@ router.post('/register', asyncHandler(async (req, res) => {
 
   const normalizedEmail = normalizeEmail(email ?? '');
   const normalizedName = (name ?? '').trim();
-  const normalizedMobile = (mobileNumber ?? '').trim();
+  const normalizedMobile = normalizeMobileNumber(typeof mobileNumber === 'string' ? mobileNumber : '');
 
   if (!normalizedName || normalizedName.length < 2) {
     res.status(400).json({ error: 'Name must be at least 2 characters.' });
     return;
   }
 
-  if (!normalizedMobile || !MOBILE_RE.test(normalizedMobile)) {
-    res.status(400).json({ error: 'Enter a valid mobile number.' });
+  if (!normalizedMobile) {
+    res.status(400).json({ error: MOBILE_ERROR });
     return;
   }
 
