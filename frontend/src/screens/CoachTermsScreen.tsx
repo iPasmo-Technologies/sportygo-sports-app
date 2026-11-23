@@ -8,6 +8,7 @@ import {
   ShieldCheck,
   Ticket,
   UserCheck,
+  UserRound,
 } from 'lucide-react';
 import type { LucideIcon } from 'lucide-react';
 import { useApp } from '@/context/AppContext';
@@ -16,9 +17,8 @@ import CoachStepBar from '@/components/CoachStepBar';
 import Spinner from '@/components/Spinner';
 import pageBackground from '@/assets/select_sport_bk.png';
 import { fetchProfile } from '@/lib/api';
-import { hasContactDetailsForCoaching, sessionsLabel, sportLabel, validityLabel } from '@/lib/coaching';
+import { missingContactDetailsMessage, sessionsLabel, sportLabel, validityLabel } from '@/lib/coaching';
 import { sgd } from '@/lib/pricing';
-import { announce } from '@/lib/utils';
 
 type TermItem = {
   title: string;
@@ -60,10 +60,11 @@ export default function CoachTermsScreen() {
   const [agreed, setAgreed] = useState(false);
   const [expandedTerms, setExpandedTerms] = useState<number[]>([]);
   const [checkingProfile, setCheckingProfile] = useState(true);
+  const [missingDetailsMessage, setMissingDetailsMessage] = useState<string | null>(null);
   const pkg = state.selectedCoachPackage;
 
-  // A package needs a real name and mobile; send the user to Profile first, then back here.
-  // The server checks again when the payment starts, so this is only for a smoother flow.
+  // A package needs a real name and mobile. Keep the user on Terms and explain what is missing,
+  // instead of jumping away. The server checks again when the payment starts.
   useEffect(() => {
     if (!state.authToken) {
       setCheckingProfile(false);
@@ -72,10 +73,8 @@ export default function CoachTermsScreen() {
     let active = true;
     fetchProfile(state.authToken)
       .then((profile) => {
-        if (!active || hasContactDetailsForCoaching(profile)) return;
-        dispatch({ type: 'SET_POST_LOGIN_REDIRECT', payload: 'coach-terms' });
-        navigate('profile');
-        announce('Please add your full name and mobile number to continue.');
+        if (!active) return;
+        setMissingDetailsMessage(missingContactDetailsMessage(profile));
       })
       .catch(() => undefined)
       .finally(() => {
@@ -84,9 +83,14 @@ export default function CoachTermsScreen() {
     return () => {
       active = false;
     };
-  }, [dispatch, navigate, state.authToken]);
+  }, [state.authToken]);
 
   if (!pkg) return null;
+
+  function goToProfile() {
+    dispatch({ type: 'SET_POST_LOGIN_REDIRECT', payload: 'coach-terms' });
+    navigate('profile');
+  }
 
   function toggleTerm(index: number) {
     setExpandedTerms(prev =>
@@ -162,10 +166,18 @@ export default function CoachTermsScreen() {
             <div><dt>Total</dt><dd><strong>{sgd(pkg.pricing.grandTotal).replace('SGD', 'S$')}</strong> (incl. all fees)</dd></div>
           </dl>
 
+          {missingDetailsMessage && (
+            <div className="checkout-panel-v2 coach-balance-panel coach-details-required" role="alert">
+              <UserRound size={20} strokeWidth={2.2} aria-hidden="true" />
+              <span>{missingDetailsMessage}</span>
+              <button type="button" onClick={goToProfile}>Update Profile</button>
+            </div>
+          )}
+
           <button
             type="button"
             className="terms-proceed-btn"
-            disabled={!agreed || checkingProfile}
+            disabled={!agreed || checkingProfile || missingDetailsMessage !== null}
             onClick={() => navigate('coach-checkout')}
           >
             {checkingProfile ? <Spinner /> : (
